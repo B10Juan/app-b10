@@ -1,5 +1,5 @@
 // APP B10 · Arranque, inicio de sesión, permisos y navegación
-import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
+import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.56.0/+esm";
 import { SUPABASE_URL, SUPABASE_KEY, APP_VERSION } from "./config.js";
 import { $, el, toast } from "./util.js";
 import { renderCompras } from "./modulos/compras.js";
