@@ -37,6 +37,9 @@ function draw(){
   if (!ctx.session) return drawLogin(app);
   if (!ctx.me) return drawSinAlta(app);
   const r = route();
+  const md = (ctx.session.user.user_metadata || {});
+  if (md.debe_cambiar_password) return drawPassword(app, true);
+  if (r === "contrasena") return drawPassword(app, false);
   if (r === "compras" && nivel("compras")) renderCompras(app);
   else if (r === "usuarios" && isAdmin()) renderUsuarios(app);
   else drawInicio(app);
@@ -50,15 +53,16 @@ export function cabecera(app, titulo, sub, volver, modulo){
   const h1 = el("h1",null,titulo); b.append(h1); if (sub) b.append(el("p",null,sub));
   if (modulo && nivel(modulo) === "ver"){ const t = el("span","tag neutral","Solo visualización: puedes consultar y filtrar, pero no modificar datos"); t.style.display = "inline-block"; t.style.marginTop = "6px"; b.append(t); }
   const w = el("div","who"); w.append(el("span",null,(ctx.me.nombre || ctx.session.user.email) + (isAdmin() ? " (administrador)" : "")));
+  const pwb = el("a","btn small","Contraseña"); pwb.href = "#contrasena";
   const out = el("button","btn small","Salir"); out.addEventListener("click", async () => { await sb.auth.signOut(); });
-  w.append(out); h.append(b, w); app.append(h);
+  w.append(pwb, out); h.append(b, w); app.append(h);
 }
 
 function drawInicio(app){
   document.title = "APP B10: Gestión";
   const h = el("header","top pad"), b = el("div","brand"), h1 = el("h1",null,"APP B10"); h1.append(el("span","sub2","Gestión")); b.append(h1);
   const w = el("div","who"); w.append(el("span",null,(ctx.me.nombre || ctx.session.user.email) + (isAdmin() ? " (administrador)" : "")));
-  const out = el("button","btn small","Salir"); out.addEventListener("click", async () => { await sb.auth.signOut(); }); w.append(out);
+  const pwb = el("a","btn small","Contraseña"); pwb.href = "#contrasena"; const out = el("button","btn small","Salir"); out.addEventListener("click", async () => { await sb.auth.signOut(); }); w.append(pwb, out);
   h.append(b, w); app.append(h);
   const g = el("div","modules pad"); let n = 0;
   for (const m of MODULOS){
@@ -78,20 +82,59 @@ function drawInicio(app){
 function drawLogin(app){
   document.title = "Acceso: APP B10";
   const box = el("div","login");
-  box.append(el("h1",null,"APP B10"), el("p",null,"Escribe tu correo de empresa y te enviaremos un enlace para entrar, sin contraseña."));
+  box.append(el("h1",null,"APP B10"), el("p",null,"Entra con tu correo de empresa y tu contraseña."));
   const msg = el("div"); box.append(msg);
-  const i = el("input"); i.type = "email"; i.placeholder = "nombre@b10bath.com"; i.autocomplete = "email"; i.setAttribute("aria-label","Correo electrónico");
-  const bt = el("button","btn primary","Enviarme el enlace");
+  const i = el("input"); i.type = "email"; i.placeholder = "nombre@b10bath.com"; i.autocomplete = "username"; i.setAttribute("aria-label","Correo electrónico");
+  const pw = el("input"); pw.type = "password"; pw.placeholder = "Contraseña"; pw.autocomplete = "current-password"; pw.setAttribute("aria-label","Contraseña");
+  const bt = el("button","btn primary","Entrar");
   const go = async () => {
-    const email = i.value.trim(); if (!email){ i.focus(); return; }
-    bt.disabled = true; bt.textContent = "Enviando…";
-    const { error } = await sb.auth.signInWithOtp({ email, options:{ shouldCreateUser:false, emailRedirectTo: location.origin + location.pathname } });
-    bt.disabled = false; bt.textContent = "Enviarme el enlace";
-    msg.className = error ? "err-msg" : "ok-msg";
-    msg.textContent = error ? "No hemos podido enviar el enlace. Comprueba que el correo está dado de alta en la APP." : `Te hemos enviado un enlace a ${email}. Ábrelo desde este mismo navegador.`;
+    const email = i.value.trim(), password = pw.value;
+    if (!email){ i.focus(); return; } if (!password){ pw.focus(); return; }
+    bt.disabled = true; bt.textContent = "Entrando…";
+    const { error } = await sb.auth.signInWithPassword({ email, password });
+    bt.disabled = false; bt.textContent = "Entrar";
+    if (error){ msg.className = "err-msg"; msg.textContent = "Correo o contraseña incorrectos. Si no la recuerdas, pide al administrador una contraseña nueva."; pw.select(); }
   };
-  bt.addEventListener("click", go); i.addEventListener("keydown", e => { if (e.key==="Enter") go(); });
-  box.append(i, bt); app.append(box); setTimeout(() => i.focus(), 30);
+  bt.addEventListener("click", go);
+  for (const n of [i, pw]) n.addEventListener("keydown", e => { if (e.key === "Enter") go(); });
+  box.append(i, pw, bt);
+  // Acceso alternativo por enlace (útil para el primer acceso del administrador)
+  const alt = el("p","hint"); alt.style.marginTop = "16px";
+  const lk = el("button","btn small","Recibir un enlace de acceso por correo");
+  lk.addEventListener("click", async () => {
+    const email = i.value.trim(); if (!email){ msg.className = "err-msg"; msg.textContent = "Escribe primero tu correo."; i.focus(); return; }
+    const { error } = await sb.auth.signInWithOtp({ email, options:{ shouldCreateUser:false, emailRedirectTo: location.origin + location.pathname } });
+    msg.className = error ? "err-msg" : "ok-msg";
+    msg.textContent = error ? "No hemos podido enviar el enlace. Pide al administrador una contraseña." : `Te hemos enviado un enlace a ${email}. Ábrelo desde este mismo navegador y después crea tu contraseña.`;
+  });
+  alt.append(lk); box.append(alt);
+  app.append(box); setTimeout(() => i.focus(), 30);
+}
+
+// Cambio de contraseña: obligatorio si el administrador la ha asignado, y disponible siempre desde «Contraseña»
+function drawPassword(app, obligatorio){
+  document.title = "Contraseña: APP B10";
+  const box = el("div","login");
+  box.append(el("h1",null, obligatorio ? "Crea tu contraseña" : "Cambiar contraseña"),
+    el("p",null, obligatorio ? "Es tu primer acceso o el administrador te ha dado una contraseña temporal. Elige una contraseña personal para continuar." : "Elige una contraseña nueva de al menos 8 caracteres."));
+  const msg = el("div"); box.append(msg);
+  const p1 = el("input"); p1.type = "password"; p1.placeholder = "Contraseña nueva (mínimo 8 caracteres)"; p1.autocomplete = "new-password"; p1.setAttribute("aria-label","Contraseña nueva");
+  const p2 = el("input"); p2.type = "password"; p2.placeholder = "Repite la contraseña"; p2.autocomplete = "new-password"; p2.setAttribute("aria-label","Repite la contraseña");
+  const bt = el("button","btn primary","Guardar contraseña");
+  const go = async () => {
+    if (p1.value.length < 8){ msg.className = "err-msg"; msg.textContent = "La contraseña debe tener al menos 8 caracteres."; p1.focus(); return; }
+    if (p1.value !== p2.value){ msg.className = "err-msg"; msg.textContent = "Las dos contraseñas no coinciden."; p2.focus(); return; }
+    bt.disabled = true;
+    const { error } = await sb.auth.updateUser({ password: p1.value, data:{ debe_cambiar_password:false } });
+    bt.disabled = false;
+    if (error){ msg.className = "err-msg"; msg.textContent = error.message && error.message.includes("different") ? "La contraseña nueva debe ser distinta de la anterior." : "No se ha podido guardar la contraseña. Prueba con otra más larga."; return; }
+    toast("Contraseña guardada"); location.hash = ""; render();
+  };
+  bt.addEventListener("click", go); for (const n of [p1, p2]) n.addEventListener("keydown", e => { if (e.key === "Enter") go(); });
+  box.append(p1, p2, bt);
+  if (!obligatorio){ const c = el("a","back","‹ Volver"); c.href = "#"; c.style.display = "block"; c.style.marginTop = "14px"; box.append(c); }
+  else { const out = el("button","btn small","Salir"); out.style.marginTop = "14px"; out.addEventListener("click", async () => { await sb.auth.signOut(); }); box.append(out); }
+  app.append(box); setTimeout(() => p1.focus(), 30);
 }
 
 function drawSinAlta(app){
@@ -123,6 +166,7 @@ sb.auth.onAuthStateChange((_ev, session) => {
     const changed = (session && session.user.id) !== (ctx.session && ctx.session.user.id) || !ctx.ready;
     ctx.session = session;
     if (changed) await cargarPerfil();
+    if (_ev === "USER_UPDATED") ctx.session = session;
     ctx.ready = true;
     render();
   }, 0);

@@ -2,7 +2,7 @@
 
 Aplicación web interna de B10. Los datos viven en Supabase (proyecto B10) y el código en este repositorio.
 
-Versión 0.1.0: módulo **Compras** (análisis de facturas de proveedores) y **Gestión de usuarios**.
+Versión 0.2.0: módulo **Compras** (análisis de facturas de proveedores) y **Gestión de usuarios** con contraseñas.
 
 ## Estructura
 
@@ -37,17 +37,19 @@ Los tres deben estar en Settings > Data API > Exposed schemas (ya configurado).
    En Site configuration > Change site name puedes dejarlo como `b10-app.netlify.app` o similar.
 4. **Supabase > Authentication > URL Configuration**: en *Site URL* pon la dirección de Netlify
    (por ejemplo `https://b10-app.netlify.app`) y añádela también en *Redirect URLs*.
-5. Entra en la dirección de Netlify, escribe tu correo y abre el enlace que te llega.
+5. Entra en la dirección de Netlify con tu correo y contraseña.
 
 Cada cambio que se suba a GitHub se publica solo en Netlify en un minuto.
 
 ## Usuarios
 
-- Alta: Supabase > Authentication > Users > Add user > Send invitation, con el correo de empresa.
-- Permisos: en la APP, Gestión de usuarios (Consulta o Edición por módulo).
-- El servidor de correo incluido en Supabase solo envía a los miembros del equipo del proyecto y con un límite bajo.
-  Antes de dar de alta al resto de usuarios hay que configurar un SMTP propio en Authentication > Emails > SMTP Settings
-  (por ejemplo, el correo de Microsoft 365 de la empresa o un servicio como Brevo).
+- Acceso con correo y contraseña. El registro libre está desactivado: solo entran los usuarios que crea un administrador.
+- Alta: en la APP, Gestión de usuarios > Nuevo usuario (nombre, correo, contraseña temporal y permisos por módulo).
+  Al entrar por primera vez, el usuario tiene que elegir su propia contraseña.
+- Si alguien olvida la contraseña: Gestión de usuarios > Nueva contraseña (se genera una temporal).
+- Cada usuario puede cambiar su contraseña desde el botón «Contraseña».
+- Permisos por módulo: Sin acceso, Visualización (ver, filtrar y exportar) o Edición. Los aplica la base de datos.
+- Scripts relacionados: supabase/migrations/06_usuarios_con_contrasena.sql
 
 ## Cargas de facturas
 
