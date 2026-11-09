@@ -13,6 +13,53 @@
 </head>
 <body>
 <div id="app"><div class="loading">Cargando…</div></div>
+<dialog id="dlgAsg">
+  <form method="dialog" id="fAsg">
+    <h2 id="asgTitle"></h2>
+    <p class="sub" id="asgSub"></p>
+    <ul id="asgList"></ul>
+    <div class="f2">
+      <div class="f"><label for="asgRef">Nº de pedido</label><input id="asgRef" autocomplete="off" placeholder="PED 098100"></div>
+      <div class="f"><label for="asgSize">Tamaño</label><select id="asgSize"></select></div>
+    </div>
+    <span class="hint" id="asgHint" style="font-size:12.5px;color:var(--ink-3)"></span>
+    <span class="err" id="asgErr"></span>
+    <div class="actions"><button type="button" class="btn" id="asgCancel">Cancelar</button><button class="btn pend">Crear pedido</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlgVer">
+  <form method="dialog" id="fVer">
+    <h2>Confirmar la modificación</h2>
+    <p class="sub" id="verSub"></p>
+    <div class="f"><label for="verRef">Nuevo nombre del pedido</label><input id="verRef" autocomplete="off"><span class="hint">La versión actual se guarda en el historial del pedido.</span></div>
+    <span class="err" id="verErr"></span>
+    <div class="actions"><button type="button" class="btn" id="verCancel">Cancelar</button><button class="btn ok">Confirmar y guardar versión</button></div>
+  </form>
+</dialog>
+
+<dialog id="dlgProd">
+  <form method="dialog" id="fProd" novalidate>
+    <h2 id="prodTitle"></h2>
+    <p class="sub" id="prodSub"></p>
+    <div class="f2">
+      <div class="f" data-f="codigo_ax"><label for="pCode">Código AX</label><input id="pCode" autocomplete="off" placeholder="P-COM-BAN-070"><span class="hint">Vacío si aún no está en AX (muestra).</span></div>
+      <div class="f" data-f="model"><label for="pModel">Modelo</label><input id="pModel" autocomplete="off" placeholder="Vela"></div>
+    </div>
+    <div class="f" data-f="name"><label for="pName">Descripción</label><input id="pName" autocomplete="off" placeholder="Vela 1700x800"><span class="hint">Obligatoria.</span></div>
+    <div class="f2">
+      <div class="f" data-f="stock"><label for="pStock">Stock actual (uds)</label><input id="pStock" inputmode="decimal"><span class="hint"></span></div>
+      <div class="f" data-f="avg"><label for="pAvg">Venta media semanal</label><input id="pAvg" inputmode="decimal"><span class="hint"></span></div>
+      <div class="f" data-f="ss"><label for="pSS">Stock de seguridad</label><input id="pSS" inputmode="decimal"><span class="hint"></span></div>
+      <div class="f" data-f="pallet"><label for="pPal">Uds por pallet</label><input id="pPal" inputmode="numeric"><span class="hint"></span></div>
+      <div class="f" data-f="price"><label for="pPrice">Precio proveedor (€)</label><input id="pPrice" inputmode="decimal"><span class="hint"></span></div>
+    </div>
+    <span class="err" id="pErr"></span>
+    <div class="actions"><button type="button" class="btn" id="prodCancel">Cancelar</button><button class="btn primary" id="prodSave">Guardar</button></div>
+  </form>
+</dialog>
+
+<datalist id="navieras"></datalist>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <script type="module" src="js/app.js"></script>
 </body>

@@ -1,0 +1,767 @@
+// APP B10 · Planificador de compras de importación, pedidos lanzados y previsión de pagos
+// La lógica de cálculo y las pantallas son las del prototipo validado; aquí se conectan con Supabase.
+import { sb, ctx, render, nivel, puedeEditar } from "../app.js";
+import { toast as toastU, sheet as sheetU, safe as safeU } from "../util.js";
+
+const $ = s => document.querySelector(s);
+const el = (t, cls, txt) => { const e = document.createElement(t); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; };
+const toast = m => toastU(m);
+const sheet = (a, w) => sheetU(a, w);
+const safe = s => safeU(s);
+const fmtM = (v,mon,d=2) => v==null||!isFinite(v) ? "" : v.toLocaleString("es-ES",{style:"currency",currency:mon||"EUR",minimumFractionDigits:d,maximumFractionDigits:Math.max(d, v!==0&&Math.abs(v)<10?4:2)});
+// Moneda del proveedor que se está viendo (los precios de importación suelen ir en USD)
+const CUR = { mon:"EUR" };
+const fmtE = v => fmtM(v, CUR.mon, 0);
+const fmtE2 = v => fmtM(v, CUR.mon, 2);
+const addMon = (a, b) => { for (const [k,v] of Object.entries(b||{})) a[k] = (a[k]||0) + v; return a; };
+const sumMon = arr => arr.reduce((a,r) => addMon(a, {[r.mon]: r.amount}), {});
+const isZero = o => Object.values(o||{}).every(v => Math.abs(v) < 0.005);
+const fmtAny = (o,d) => { const e = Object.entries(o||{}).filter(([,v]) => Math.abs(v) >= 0.005); return e.length ? e.map(([m,v]) => fmtM(v,m,d)).join(" + ") : fmtM(0,"EUR",d); };
+const fmtAny0 = o => fmtAny(o,0), fmtAny2 = o => fmtAny(o,2);
+const dispCode = p => (p && p.codigo_ax) || (p && p.artId ? "Muestra sin ref. AX" : (p && p.code) || "");
+let tmpN = 0; const tmpId = () => `tmp-${Date.now()}-${++tmpN}`;
+function whoChip(){ const w = el("div","who"); if (ctx.me) w.append(el("span",null,(ctx.me.nombre || ctx.session.user.email))); return w; }
+function perm(m){ const n = nivel(m === "compras" ? "planificador" : m); return n === "editar" ? "edicion" : n === "ver" ? "consulta" : "ninguno"; }
+function stamp(){ return key(utcToday); }
+async function saveXlsx(wb, name){ XLSX.writeFile(wb, name, {cellDates:true}); toast("Archivo exportado"); }
+
+const state = {
+  suppliers:[], products:[], orders:[], canWrite:false, loaded:{s:false},
+  filters:{q:"",onlyA:false,compact:false}, collapsed:new Set(), showDone:false, expanded:new Set(), histOpen:new Set(),
+  ordFilter:{sid:"",peds:[],refs:[]}, payFilter:{sup:"",pend:true,paid:false},
+  get dd(){ return ctx.ui.dd; }, set dd(v){ ctx.ui.dd = v; },
+  get ddq(){ return ctx.ui.ddq; }, set ddq(v){ ctx.ui.ddq = v; },
+};
+/* ===== Código del prototipo validado (adaptado) ===== */
+const SIZES=[["grupaje","Grupaje"],["20","Contenedor 20'"],["40","Contenedor 40'"],["40hc","Contenedor 40' HC"]];
+const sizeLabel=v=>(SIZES.find(s=>s[0]===v)||[,""])[1];
+const REQ=[["stock","stock actual"],["avg","venta media semanal"],["ss","stock de seguridad"],["pallet","uds por pallet"],["price","precio proveedor"]];
+
+/* ---------- Fechas ---------- */
+const DAY=86400000;
+const utcToday=(()=>{const d=new Date(); return new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate()));})();
+function mondayU(x){const wd=(x.getUTCDay()+6)%7; return new Date(x.getTime()-wd*DAY);}
+const today=mondayU(utcToday);
+function addW(d,n){return new Date(d.getTime()+n*7*DAY);}
+function addD(d,n){return new Date(d.getTime()+n*DAY);}
+function key(d){return d.toISOString().slice(0,10);}
+function parseKey(k){const [y,m,dd]=k.split("-").map(Number); return new Date(Date.UTC(y,m-1,dd));}
+function isoWeek(d){const t=new Date(d.getTime()); t.setUTCDate(t.getUTCDate()+3-((t.getUTCDay()+6)%7)); const y=t.getUTCFullYear(); const w1=new Date(Date.UTC(y,0,4)); return 1+Math.round(((t-w1)/DAY-3+((w1.getUTCDay()+6)%7))/7);}
+function wLabel(d){return "S"+String(isoWeek(d)).padStart(2,"0");}
+function dShort(d){return d.toLocaleDateString("es-ES",{day:"2-digit",month:"short",timeZone:"UTC"}).replace(".","");}
+function dLong(d){return d.toLocaleDateString("es-ES",{day:"numeric",month:"short",year:"numeric",timeZone:"UTC"}).replace(".","");}
+function xDate(d){return d?new Date(d.getUTCFullYear(),d.getUTCMonth(),d.getUTCDate()):"";}
+const fmt=v=>{if(v==null||v===0) return ""; const r=Math.round(v*100)/100; return Number.isInteger(r)?String(r):r.toLocaleString("es-ES",{maximumFractionDigits:2});};
+
+
+const num=s=>{if(s==null) return NaN; const t=String(s).trim().replace(/\s/g,"").replace(",","."); return t===""?NaN:Number(t);};
+function parsePrice(s){s=String(s).trim().replace(/\s|€/g,""); if(s.includes(",")) s=s.replace(/\./g,"").replace(",","."); return s===""?NaN:Number(s);}
+const clone=o=>JSON.parse(JSON.stringify(o));
+const same=(a,b)=>{const ka=Object.keys(a||{}).sort(), kb=Object.keys(b||{}).sort(); if(ka.join()!==kb.join()) return false; return ka.every(k=>a[k]===b[k]);};
+
+/* ---------- Modelo ---------- */
+const DEF={plazo:12,transito:5,despacho:1,pagoDias:15,horizonte:52,cobertura:8};
+function sup(id){return state.suppliers.find(s=>s._id===id);}
+function cfg(sid){return Object.assign({},DEF,sup(sid)||{});}
+function weeks(sid){const n=cfg(sid).horizonte||52; const a=[]; for(let i=0;i<n;i++) a.push(addW(today,i)); return a;}
+const prodsOf=sid=>state.products.filter(p=>p.supplier===sid).sort((a,b)=>(a.sort||0)-(b.sort||0));
+const prod=code=>state.products.find(p=>p.code===code);
+const ordersOf=sid=>state.orders.filter(o=>o.supplier===sid);
+const isPend=o=>o.status==="pendiente";
+const effLines=o=>(o.mod?o.mod.lines:o.lines)||{};
+const effPrices=o=>(o.mod?o.mod.prices:o.prices)||{};
+function lp(o,code,base){const pr=base?(o.prices||{}):effPrices(o); const p=prod(code); return pr[code]!=null?pr[code]:(p&&p.price||0);}
+const total=(o,base)=>Object.entries(base?(o.lines||{}):effLines(o)).reduce((a,[k,q])=>a+q*lp(o,k,base),0);
+const missing=p=>REQ.filter(([f])=>p[f]==null||p[f]===""||(f==="pallet"&&!(p[f]>=1))).map(([,l])=>l);
+function od(o,sid){
+  const c=cfg(sid), eta=parseKey(o.eta), etaW=mondayU(eta);
+  const etd=o.etd?parseKey(o.etd):addW(etaW,-c.transito);
+  return {eta,etaW,entryW:addW(etaW,c.despacho),etd,etdW:mondayU(etd),pedidoW:addW(etaW,-c.plazo),pago:addD(etd,-c.pagoDias),crd:o.crd?parseKey(o.crd):null};
+}
+function orderState(o,sid){
+  const d=od(o,sid);
+  if(isPend(o)) return ["Pendiente de confirmar","pend"];
+  if(utcToday>=d.entryW) return ["En almacén","neutral"];
+  if(utcToday>=d.eta) return ["En despacho","warn"];
+  if(o.etd&&utcToday>=d.etd) return ["En tránsito","ok"];
+  if(d.crd&&utcToday>=d.crd) return ["Pendiente de embarque","warn"];
+  return ["En producción","ok"];
+}
+function calc(p,sid){
+  const c=cfg(sid), W=weeks(sid), n=W.length, idx=new Map(W.map((d,i)=>[key(d),i]));
+  const dem=new Array(n), entry=new Array(n).fill(0), tone=new Array(n).fill(""), tips=Array.from({length:n},()=>[]), ped=new Array(n).fill(0), carga=new Array(n).fill(0);
+  const ov=p.overrides||{}, avg=p.avg||0, pal=p.pallet>=1?p.pallet:1;
+  for(let i=0;i<n;i++){const k=key(W[i]); dem[i]=(k in ov)?ov[k]:avg;}
+  const warnings=[], rank={"":0,conf:1,pnd:2,mod:3};
+  for(const o of ordersOf(sid)){
+    const q=effLines(o)[p.code]||0, base=(o.lines||{})[p.code]||0, changed=!isPend(o)&&o.mod&&q!==base;
+    if(!q&&!changed) continue;
+    const d=od(o,sid), ie=idx.get(key(d.entryW));
+    if(ie!=null){entry[ie]+=q; const t=isPend(o)?"pnd":changed?"mod":"conf"; if(rank[t]>rank[tone[ie]]) tone[ie]=t;
+      tips[ie].push(isPend(o)?"Pendiente de confirmar pedido":changed?`${o.ref}: modificación pendiente de validar (antes ${base} uds)`:o.ref);}
+    if(!q) continue;
+    if(isPend(o)){const ip=idx.get(key(d.pedidoW)); if(ip!=null) ped[ip]+=q; else if(d.pedidoW<today) warnings.push(`Entrada ${wLabel(d.entryW)} sin pedido: debía lanzarse en ${wLabel(d.pedidoW)}`);}
+    const ic=idx.get(key(d.etdW)); if(ic!=null) carga[ic]+=q;
+    if(pal>1&&q%pal!==0) warnings.push(`${q} uds en ${isPend(o)?"entrada "+wLabel(d.entryW):o.ref} no es múltiplo de ${pal}`);
+  }
+  const net=new Array(n); let prev=p.stock||0;
+  for(let i=0;i<n;i++){prev=prev-dem[i]+entry[i]; net[i]=prev;}
+  const real=net.map(v=>Math.max(0,v)), res=net.map(v=>Math.max(0,-v)), over=net.map(v=>v-(p.ss||0));
+  const fi=over.findIndex(v=>v<-1e-9); let sug=null;
+  if(fi>=0){const launch=addW(W[fi],-(c.despacho+c.plazo)); const short=-over[fi]+avg*c.cobertura; sug={week:W[fi],launch,qty:Math.max(pal,Math.ceil(short/pal-1e-9)*pal),late:launch<today,rotura:net.some(v=>v<-1e-9)};}
+  return {W,dem,entry,tone,tips,ped,carga,net,real,res,over,sug,warnings,miss:missing(p)};
+}
+function supStats(sid){
+  let brk=0,und=0,launch=0,inc=0;
+  for(const p of prodsOf(sid)){const r=calc(p,sid); if(r.net.some(v=>v<-1e-9)) brk++; else if(r.over.some(v=>v<-1e-9)) und++; if(r.sug&&r.sug.launch<addW(today,4)) launch++; if(r.miss.length) inc++;}
+  const os=ordersOf(sid);
+  return {brk,und,launch,inc,n:prodsOf(sid).length,
+    live:os.filter(o=>!isPend(o)&&orderState(o,sid)[0]!=="En almacén").length,
+    pend:os.filter(o=>isPend(o)&&Object.keys(o.lines||{}).length).length,
+    mods:os.filter(o=>!isPend(o)&&o.mod).length};
+}
+
+/* Cambios en las líneas de un pedido lanzado: quedan como modificación pendiente de validar */
+function changeLines(o,fn){
+  const n=clone(o);
+  if(isPend(n)){n.lines=n.lines||{}; n.prices=n.prices||{}; fn(n.lines,n.prices,n); return n;}
+  if(!n.mod) n.mod={lines:clone(n.lines||{}),prices:clone(n.prices||{}),at:key(utcToday)};
+  fn(n.mod.lines,n.mod.prices,n);
+  if(same(n.mod.lines,n.lines||{})&&same(n.mod.prices,n.prices||{})) delete n.mod;
+  return n;
+}
+function setLine(lines,prices,o,code,q){
+  if(q){lines[code]=q; if(prices[code]==null){const b=(o.prices||{})[code]; prices[code]=b!=null?b:((prod(code)||{}).price||0);}}
+  else {delete lines[code]; delete prices[code];}
+}
+function afterMod(n,ref){if(!isPend(n)) toast(n.mod?`${ref}: modificación pendiente de validar por el proveedor`:`${ref}: vuelve a coincidir con la versión confirmada`);}
+function exportBtn(fn){const b=el("button","btn","Exportar a Excel"); b.addEventListener("click",fn); return b;}
+function renderHome(app){
+  document.title="Planificador de compras de importación";
+  const h=el("header","top pad"); const b=el("div","brand"); const bk=el("a","back","‹ Planificador de compras"); bk.href="#planificador"; b.append(bk, el("h1",null,"Proveedores"), el("p",null,"Elige el proveedor que quieres revisar.")); h.append(b, exportBtn(exportHome)); app.append(h);
+  const g=el("div","suppliers pad");
+  const ss=[...state.suppliers].sort((a,b)=>(prodsOf(b._id).length>0)-(prodsOf(a._id).length>0)||(a.sort||0)-(b.sort||0));
+  if(!ss.length&&state.loaded.s) g.append(el("div","card empty","Todavía no hay proveedores dados de alta."));
+  for(const s of ss){
+    const st=supStats(s._id); const a=el("a","sup"+(st.n?"":" nodata")); a.href="#"+s._id;
+    a.append(el("h2",null,s.name), el("p",null,[s.familia,s.contacto?"Contacto: "+s.contacto:""].filter(Boolean).join(". ")||"Sin datos de contacto"));
+    const t=el("div","stats");
+    if(!st.n) t.append(el("span","tag neutral","Sin artículos cargados"));
+    else{
+      t.append(el("span","tag neutral",`${st.n} artículos`));
+      if(st.brk) t.append(el("span","tag bad",`${st.brk} con rotura`));
+      if(st.und) t.append(el("span","tag warn",`${st.und} bajo seguridad`));
+      if(st.inc) t.append(el("span","tag bad",`${st.inc} con datos incompletos`));
+      if(st.pend) t.append(el("span","tag pend",`${st.pend} entradas sin pedido`));
+      if(st.mods) t.append(el("span","tag mod",`${st.mods} modificaciones por validar`));
+      if(st.live) t.append(el("span","tag ok",`${st.live} pedidos en curso`));
+    }
+    a.append(t); g.append(a);
+  }
+  app.append(g);
+}
+const PARAMS=[["plazo","Pedido a puerto","sem"],["transito","Tránsito","sem"],["despacho","Despacho","sem"],["pagoDias","Pago antes de embarque","días"],["cobertura","Cobertura por pedido","sem"]];
+function renderSupHeader(app,r){
+  const s=sup(r.sid), c=cfg(r.sid); document.title=`${s.name}: planificador de compras`;
+  const h=el("header","top pad"); const b=el("div","brand");
+  const back=el("a","back","‹ Proveedores"); back.href="#proveedores"; b.append(back, el("h1",null,s.name), el("p",null,[s.contacto?"Contacto: "+s.contacto:"",s.email||""].filter(Boolean).join("   ")||"Sin datos de contacto"));
+  h.append(b);
+  const pr=el("div","params");
+  for(const [k,l,u] of PARAMS){const w=el("label","param"); w.append(l+" "); const i=el("input"); i.value=c[k]; i.inputMode="numeric"; i.disabled=!state.canWrite; i.setAttribute("aria-label",l); i.dataset.k="param-"+k;
+    i.addEventListener("change",()=>{const v=num(i.value); if(!(v>=0)){i.value=c[k]; toast("Introduce un número válido"); return;} saveSup(r.sid,{[k]:v});}); w.append(i,el("span","u",u)); pr.append(w);}
+  h.append(pr); app.append(h);
+  const fl=el("section","flow"); fl.setAttribute("aria-label","Plazos de un pedido");
+  const step=(t,sm,k)=>{const d=el("div"); d.append(el("b",null,t),el("small",null,sm),el("span","k",k)); return d;};
+  fl.append(step("Pedido","Se lanza al proveedor",`ETA − ${c.plazo} sem`), step("Pago","Previsión",`ETD − ${c.pagoDias} d`), step("Carga en China","ETD, embarque",`ETA − ${c.transito} sem`), step("Llegada a puerto","ETA Valencia","ETA"), step("Entrada en almacén","Tras despacho",`ETA + ${c.despacho} sem`));
+  app.append(fl);
+  const nav=el("nav","tabs pad");
+  const t1=el("a",null,"Revisión de artículos para compras"); t1.href="#"+r.sid; if(r.view==="art") t1.setAttribute("aria-current","page");
+  const t2=el("a",null,"Pedidos lanzados"); t2.href="#"+r.sid+"-pedidos"; if(r.view==="ped") t2.setAttribute("aria-current","page");
+  nav.append(t1,t2); app.append(nav);
+}
+
+/* ---------- Vista: revisión de artículos ---------- */
+function visibleProducts(sid){
+  const f=state.filters, qq=f.q.trim().toLowerCase();
+  return prodsOf(sid).map(p=>({p,r:calc(p,sid)})).filter(({p,r})=>{
+    if(qq&&!((p.codigo_ax||"").toLowerCase().includes(qq)||(p.name||"").toLowerCase().includes(qq)||(p.model||"").toLowerCase().includes(qq))) return false;
+    if(f.onlyA&&!r.over.some(v=>v<-1e-9)&&!r.warnings.length&&!r.miss.length) return false;
+    return true;});
+}
+function renderArticles(app,sid){
+  const c=cfg(sid), W=weeks(sid), f=state.filters;
+  const tb=el("div","toolbar pad");
+  const q=el("input"); q.type="search"; q.placeholder="Buscar modelo o código"; q.value=f.q; q.dataset.k="q"; q.setAttribute("aria-label","Buscar artículo"); q.addEventListener("input",()=>{f.q=q.value; render();});
+  const l1=el("label"); const c1=el("input"); c1.type="checkbox"; c1.checked=f.onlyA; c1.addEventListener("change",()=>{f.onlyA=c1.checked; render();}); l1.append(c1," Solo artículos con alerta");
+  const l2=el("label"); const c2=el("input"); c2.type="checkbox"; c2.checked=f.compact; c2.addEventListener("change",()=>{f.compact=c2.checked; render();}); l2.append(c2," Ocultar filas de pedido y carga");
+  const nb=el("button","btn primary","Nuevo artículo"); nb.disabled=!state.canWrite; nb.addEventListener("click",()=>openProd(null,sid));
+  const st=supStats(sid); const sm=el("div","summary");
+  const mk=(cl,n,l)=>{const x=el("span",cl); x.append(el("b",null,String(n))," "+l); return x;};
+  sm.append(mk("r",st.brk,"con rotura"),mk("a",st.und,"bajo seguridad"),mk("p",st.pend,"entradas sin pedido"),mk("m",st.mods,"modificaciones por validar"),mk("",st.launch,"pedidos a lanzar en 4 semanas"));
+  tb.append(q,l1,l2,nb,exportBtn(()=>exportArticles(sid)),sm); app.append(tb);
+  const lg=el("div","legend pad");
+  for(const [v,t] of [["--arrive-soft","Entrada con pedido confirmado"],["--pend-soft","Entrada pendiente de confirmar pedido"],["--mod-soft","Modificación pendiente de validar por el proveedor"],["--promo-soft","Venta modificada a mano"],["--amber-soft","Bajo stock de seguridad"],["--red-soft","Rotura"]]){const s=el("span"); const i=el("i"); i.style.background=`var(${v})`; s.append(i,t); lg.append(s);}
+  app.append(lg);
+  const wrap=el("div","gridwrap"), t=el("table","grid");
+  const th=el("thead"), hr=el("tr"); hr.append(el("th","lab","Semana"));
+  const pendByWeek=new Map(); for(const o of ordersOf(sid)) if(isPend(o)&&Object.keys(o.lines||{}).length) pendByWeek.set(key(od(o,sid).entryW),o);
+  const confByWeek=new Map(); for(const o of ordersOf(sid)) if(!isPend(o)){const k=key(od(o,sid).entryW); if(!confByWeek.has(k)) confByWeek.set(k,[]); confByWeek.get(k).push(o);}
+  W.forEach((d,i)=>{const h=el("th",i===0?"now":""); h.append(wLabel(d)); h.append(el("small",null,dShort(d)));
+    for(const o of (confByWeek.get(key(d))||[])){const dd=od(o,sid); const tg=el("a","otag"+(o.mod?" m":""),o.ref); tg.href=`#${sid}-pedidos`; tg.setAttribute("aria-label",`Pedido ${o.ref}`);
+      const tip=el("span","tip"); tip.append(el("b",null,o.ref+"\n"), `CRD: ${o.crd?dLong(parseKey(o.crd)):"sin fecha"}\nETD: ${o.etd?dLong(parseKey(o.etd)):"sin fecha (estimada "+dLong(dd.etd)+")"}\nETA: ${dLong(dd.eta)}\nTamaño: ${sizeLabel(o.tamano)||"sin indicar"}\nNaviera: ${o.naviera||"sin indicar"}\nImporte: ${fmtE2(total(o))}${o.mod?"\nModificación pendiente de validar":""}`);
+      tg.append(tip); tg.addEventListener("click",()=>{state.expanded.add(o._id); state.ordFilter={sid,peds:[o._id],refs:[]}; state.dd=null;}); h.append(tg);}
+    const po=pendByWeek.get(key(d)); if(po&&state.canWrite){const b=el("button","asg","Crear pedido"); b.title="Crear un pedido con todas las entradas pendientes de esta semana"; b.addEventListener("click",()=>openAsg(sid,po)); h.append(b);} hr.append(h);});
+  th.append(hr); t.append(th);
+  const vis=visibleProducts(sid);
+  for(const {p,r} of vis) t.append(productBody(p,r,W,sid,c));
+  if(!vis.length){const b=el("tbody"),tr=el("tr"),td=el("td","empty"); td.colSpan=W.length+1; td.style.textAlign="left"; td.textContent=prodsOf(sid).length?"Ningún artículo coincide con el filtro.":"Este proveedor aún no tiene artículos en el planificador. Añádelos con «Nuevo artículo»."; tr.append(td); b.append(tr); t.append(b);}
+  wrap.append(t); app.append(wrap);
+}
+function rowsFor(c){return [["dem","Venta prevista"],["entry","Entrada en almacén",null,`ETA + ${c.despacho} sem`],["ped","Pedido a lanzar","x"],["carga","Carga en China (ETD)","x"],["real","Stock real"],["res","Reservas pendientes"],["over","Sobre stock de seguridad"]];}
+function productBody(p,r,W,sid,c){
+  const tb=el("tbody"), collapsed=state.collapsed.has(p.code), compact=state.filters.compact;
+  const h=el("tr","ph"), hc=el("td"); hc.colSpan=W.length+1; const inn=el("div","phin");
+  const nb=el("button","name",p.name||p.code); nb.title="Ver o editar los datos del artículo"; nb.addEventListener("click",()=>openProd(p,sid));
+  const mv=v=>v==null||v===""?"falta":(fmt(v)||"0");
+  inn.append(nb, el("span","code",dispCode(p)), el("span","meta",`Stock ${mv(p.stock)}  |  Venta ${mv(p.avg)}/sem  |  Seguridad ${mv(p.ss)}  |  Pallet ${mv(p.pallet)}  |  Precio ${p.price==null||p.price===""?"falta":fmtE2(p.price)}`));
+  if(r.miss.length){const mb=el("button","tag bad",`Faltan datos: ${r.miss.join(", ")}. Completar`); mb.addEventListener("click",()=>openProd(p,sid)); inn.append(mb);}
+  if(r.sug){const s=r.sug; inn.append(el("span","tag "+(s.late||s.rotura?"bad":"warn"), s.late?`Vas tarde: bajo seguridad en ${wLabel(s.week)}. Pide ya ${s.qty} uds`:`Lanzar pedido en ${wLabel(s.launch)}: ${s.qty} uds (bajo seguridad en ${wLabel(s.week)})`));}
+  else if(!r.miss.length) inn.append(el("span","tag ok","Cubierto todo el horizonte"));
+  for(const w of r.warnings) inn.append(el("span","tag bad",w));
+  const tg=el("button","tog",collapsed?"Mostrar":"Ocultar"); tg.addEventListener("click",()=>{collapsed?state.collapsed.delete(p.code):state.collapsed.add(p.code); render();});
+  inn.append(tg); hc.append(inn); h.append(hc); tb.append(h);
+  for(const [k,label,opt,note] of rowsFor(c)){
+    const tr=el("tr",(collapsed||(compact&&opt))?"hidden":(k==="real"?"rowA":""));
+    const lc=el("td","lab",label); if(note){lc.append(el("small",null,note)); lc.title="La mercancía entra en almacén una semana después de llegar a puerto, por el despacho del contenedor.";} tr.append(lc);
+    for(let i=0;i<W.length;i++){
+      const td=el("td","v"+(i===0?" now":"")), ks=key(W[i]);
+      if(k==="dem"||k==="entry"){
+        td.classList.remove("v");
+        const inp=el("input","cell"); inp.disabled=!state.canWrite; inp.dataset.k=`${k}|${p.code}|${ks}`;
+        if(k==="dem"){
+          inp.value=fmt(r.dem[i]); inp.inputMode="decimal";
+          if(p.overrides&&(ks in p.overrides)){inp.classList.add("promo"); inp.title="Modificada a mano. Borra el valor para volver a la media.";}
+          inp.setAttribute("aria-label",`Venta prevista ${p.name} ${wLabel(W[i])}`);
+          inp.addEventListener("change",()=>setDemand(p,ks,inp.value));
+        } else {
+          inp.value=fmt(r.entry[i]); inp.inputMode="numeric";
+          if(r.tone[i]){inp.classList.add(r.tone[i]); inp.title=r.tips[i].join(". ");}
+          if(r.entry[i]&&(p.pallet||1)>1&&r.entry[i]%p.pallet) inp.classList.add("badpal");
+          inp.setAttribute("aria-label",`Entrada en almacén ${p.name} ${wLabel(W[i])}`);
+          inp.addEventListener("change",()=>setEntry(sid,p,W[i],inp));
+        }
+        td.append(inp);
+      }
+      else if(k==="ped"){td.textContent=fmt(r.ped[i]); if(r.ped[i]) td.classList.add("ord");}
+      else if(k==="carga"){td.textContent=fmt(r.carga[i]); td.classList.add("carga");}
+      else if(k==="real"){td.textContent=fmt(r.real[i])||"0"; if(r.real[i]<=1e-9) td.classList.add("zero");}
+      else if(k==="res"){td.textContent=fmt(r.res[i]); td.classList.add("res");}
+      else {const v=r.over[i]; td.textContent=fmt(v)||"0"; if(r.net[i]<-1e-9) td.classList.add("break"); else if(v<-1e-9) td.classList.add("under"); else td.classList.add("dim");}
+      tr.append(td);
+    }
+    tb.append(tr);
+  }
+  return tb;
+}
+function setDemand(p,k,raw){
+  const np=clone(p); np.overrides=np.overrides||{}; const v=num(raw);
+  if(raw.trim()===""||v===p.avg) delete np.overrides[k];
+  else if(isNaN(v)||v<0){toast("La venta prevista debe ser un número igual o mayor que cero"); render(); return;}
+  else np.overrides[k]=v;
+  for(const kk of Object.keys(np.overrides)) if(parseKey(kk)<today) delete np.overrides[kk];
+  saveProduct(np);
+}
+function setEntry(sid,p,w,inp){
+  const c=cfg(sid), raw=inp.value, q=raw.trim()===""?0:num(raw), pal=p.pallet>=1?p.pallet:1;
+  if(isNaN(q)||q<0||!Number.isInteger(q)){toast("Introduce un número entero de unidades."); render(); return;}
+  if(q%pal!==0){const lo=Math.floor(q/pal)*pal; toast(`${q} no es múltiplo de ${pal} uds por pallet. Prueba con ${lo||pal} o ${lo+pal}.`); render(); return;}
+  const wk=key(w);
+  const confs=ordersOf(sid).filter(o=>!isPend(o)&&key(od(o,sid).entryW)===wk);
+  const confO=confs.find(o=>effLines(o)[p.code]||(o.lines||{})[p.code])||confs[0];
+  if(confO){const n=changeLines(confO,(L,P,o)=>setLine(L,P,o,p.code,q)); saveOrder(n); afterMod(n,n.ref); return;}
+  const etaK=key(addW(w,-c.despacho)); const id=`pend-${sid}-${etaK}`;
+  const ex=state.orders.find(o=>o._id===id)||ordersOf(sid).find(o=>isPend(o)&&key(od(o,sid).entryW)===wk);
+  const o=ex?clone(ex):{_id:id,supplier:sid,status:"pendiente",ref:"",eta:etaK,lines:{}};
+  o.lines=o.lines||{}; if(q) o.lines[p.code]=q; else delete o.lines[p.code];
+  if(!Object.keys(o.lines).length){if(ex) delOrder(o); else render(); return;}
+  saveOrder(o);
+}
+
+/* ---------- Crear pedido desde entradas pendientes ---------- */
+let asgCtx=null;
+function openAsg(sid,po){
+  asgCtx={sid,po}; const d=od(po,sid);
+  $("#asgTitle").textContent=`Nuevo pedido para la entrada de ${wLabel(d.entryW)}`;
+  $("#asgSub").textContent=`Incluirá todas las cantidades pendientes de esa semana (ETA ${wLabel(d.etaW)}):`;
+  const ul=$("#asgList"); ul.textContent=""; for(const [k,q] of Object.entries(po.lines||{})) ul.append(el("li",null,`${(prod(k)||{name:k}).name}: ${q} uds`));
+  const sz=$("#asgSize"); sz.textContent=""; for(const [v,l] of SIZES){const op=el("option",null,l); op.value=v; sz.append(op);} sz.value="40";
+  $("#asgHint").textContent=`ETA inicial ${dLong(d.eta)}. Podrás ajustar CRD, ETD, ETA y naviera en Pedidos lanzados.`;
+  $("#asgRef").value=""; $("#asgErr").textContent=""; $("#dlgAsg").showModal(); setTimeout(()=>$("#asgRef").focus(),30);
+}
+$("#asgCancel").addEventListener("click",()=>$("#dlgAsg").close());
+$("#fAsg").addEventListener("submit",ev=>{
+  ev.preventDefault(); const {sid,po}=asgCtx; const ref=$("#asgRef").value.trim();
+  if(!ref){$("#asgErr").textContent="Indica el número de pedido."; return;}
+  if(state.orders.some(x=>!isPend(x)&&x.supplier===sid&&(x.ref||"").toLowerCase()===ref.toLowerCase())){$("#asgErr").textContent="Ya existe un pedido con ese número."; return;}
+  const o={_id:tmpId(),supplier:sid,status:"lanzado",ref,crd:"",etd:"",eta:po.eta,naviera:"",tamano:$("#asgSize").value,lines:{},prices:{},history:[]};
+  let n=0; for(const [k,q] of Object.entries(po.lines||{})){o.lines[k]=q; o.prices[k]=(prod(k)||{}).price||0; n++;}
+  $("#dlgAsg").close(); saveOrder(o).then(ok=>{ if(ok) delOrder(po); }); toast(`Pedido ${ref} creado con ${n} ${n===1?"artículo":"artículos"}`);
+});
+
+/* ---------- Validación de modificaciones ---------- */
+let verCtx=null;
+function nextRef(o){const n=(o.history||[]).length+1; const base=(o.history&&o.history[0]?o.history[0].ref:o.ref).replace(/\s*-M\d+$/,""); return `${base}-M${n}`;}
+function openVer(o){verCtx=o; $("#verSub").textContent=`Se aplicarán los cambios a ${o.ref} y su versión actual quedará en el historial.`; $("#verRef").value=nextRef(o); $("#verErr").textContent=""; $("#dlgVer").showModal(); setTimeout(()=>{$("#verRef").focus(); $("#verRef").select();},30);}
+$("#verCancel").addEventListener("click",()=>$("#dlgVer").close());
+$("#fVer").addEventListener("submit",ev=>{
+  ev.preventDefault(); const o=verCtx, ref=$("#verRef").value.trim();
+  if(!ref){$("#verErr").textContent="Indica el nuevo nombre del pedido."; return;}
+  if(ref.toLowerCase()!==(o.ref||"").toLowerCase()&&state.orders.some(x=>x._id!==o._id&&!isPend(x)&&x.supplier===o.supplier&&(x.ref||"").toLowerCase()===ref.toLowerCase())){$("#verErr").textContent="Ya existe otro pedido con ese nombre."; return;}
+  const n=clone(o); n.history=n.history||[];
+  n.history.push({ref:o.ref,lines:clone(o.lines||{}),prices:clone(o.prices||{}),crd:o.crd||"",etd:o.etd||"",eta:o.eta,naviera:o.naviera||"",tamano:o.tamano||"",replacedAt:key(utcToday)});
+  n.ref=ref; n.lines=n.mod.lines; n.prices=n.mod.prices; delete n.mod;
+  $("#dlgVer").close(); state.expanded.add(n._id); saveOrder(n); toast(`Modificación confirmada. El pedido pasa a llamarse ${ref}`);
+});
+function rejectMod(o){if(!confirm(`¿Descartar la modificación de ${o.ref} y volver a la versión confirmada?`)) return; const n=clone(o); delete n.mod; saveOrder(n); toast(`${o.ref}: modificación descartada`);}
+
+/* ---------- Vista: pedidos lanzados ---------- */
+function orderGroups(sid){
+  const pend=ordersOf(sid).filter(o=>isPend(o)&&Object.keys(o.lines||{}).length).sort((a,b)=>a.eta<b.eta?-1:1);
+  const all=ordersOf(sid).filter(o=>!isPend(o)).sort((a,b)=>a.eta<b.eta?-1:1);
+  return {pend, done:all.filter(o=>orderState(o,sid)[0]==="En almacén"), live:all.filter(o=>orderState(o,sid)[0]!=="En almacén")};
+}
+function ordF(sid){if(state.ordFilter.sid!==sid) state.ordFilter={sid,peds:[],refs:[]}; return state.ordFilter;}
+function filteredGroups(sid){
+  const g=orderGroups(sid), f=ordF(sid);
+  const okRef=o=>!f.refs.length||f.refs.some(r=>effLines(o)[r]||(o.lines||{})[r]);
+  const okPed=o=>!f.peds.length||f.peds.includes(o._id);
+  return {pend:f.peds.length?[]:g.pend.filter(okRef), live:g.live.filter(o=>okPed(o)&&okRef(o)), done:g.done.filter(o=>okPed(o)&&okRef(o)), act:!!(f.peds.length||f.refs.length), totalN:g.live.length+g.done.length};
+}
+function ddMulti(id,label,opts,sel,onChange){
+  const w=el("div","dd"); const b=el("button","btn ddb"+(sel.length?" on":"")); b.type="button";
+  b.textContent=`${label}: ${sel.length?(sel.length===1?((opts.find(o=>o.v===sel[0])||{l:"1 seleccionado"}).l):sel.length+" seleccionados"):"Todos"}`;
+  b.setAttribute("aria-expanded",String(state.dd===id)); b.addEventListener("click",e=>{e.stopPropagation(); state.dd=state.dd===id?null:id; state.ddq=""; render();});
+  w.append(b);
+  if(state.dd===id){
+    const pn=el("div","ddp"); pn.addEventListener("click",e=>e.stopPropagation());
+    const q=el("input"); q.type="search"; q.placeholder="Buscar"; q.value=state.ddq; q.dataset.k="ddq-"+id; q.setAttribute("aria-label","Buscar en "+label); q.addEventListener("input",()=>{state.ddq=q.value; render();});
+    const list=el("div","ddl"), qq=state.ddq.trim().toLowerCase();
+    for(const o of opts){if(qq&&!(o.l+" "+(o.sub||"")).toLowerCase().includes(qq)) continue;
+      const lb=el("label"), cb=el("input"); cb.type="checkbox"; cb.checked=sel.includes(o.v); cb.dataset.k=`dd-${id}-${o.v}`;
+      cb.addEventListener("change",()=>onChange(cb.checked?[...sel,o.v]:sel.filter(x=>x!==o.v)));
+      const sp=el("span",null,o.l); if(o.sub) sp.append(el("small",null,o.sub)); lb.append(cb,sp); list.append(lb);}
+    if(!list.childNodes.length) list.append(el("p","secsub","Sin resultados"));
+    const ft=el("div","ddf"); const cl=el("button","btn small","Quitar selección"); cl.type="button"; cl.addEventListener("click",()=>onChange([]));
+    const ok=el("button","btn small primary","Aceptar"); ok.type="button"; ok.addEventListener("click",()=>{state.dd=null; render();}); ft.append(cl,ok);
+    pn.append(q,list,ft); w.append(pn);
+    if(!state.ddq) setTimeout(()=>{const n=document.querySelector(`[data-k="ddq-${id}"]`); if(n&&document.activeElement!==n&&!document.activeElement.closest(".ddp")) n.focus();},0);
+  }
+  return w;
+}
+function filterBar(sid,fg){
+  const f=ordF(sid), bar=el("div","fbar"); bar.append(el("span","lbl","Filtrar"));
+  const all=ordersOf(sid).filter(o=>!isPend(o)).sort((a,b)=>a.eta<b.eta?-1:1);
+  const pedOpts=all.map(o=>({v:o._id,l:o.ref,sub:`ETA ${dLong(parseKey(o.eta))}. Entrada en almacén ${wLabel(od(o,sid).entryW)}`}));
+  const codes=new Set(); for(const o of ordersOf(sid)){for(const k of Object.keys(effLines(o))) codes.add(k); for(const k of Object.keys(o.lines||{})) codes.add(k);}
+  const refOpts=prodsOf(sid).filter(p=>codes.has(p.code)).map(p=>({v:p.code,l:dispCode(p),sub:p.name}));
+  bar.append(ddMulti("ped","Nº de pedido",pedOpts,f.peds,n=>{f.peds=n; render();}), ddMulti("ref","Referencia",refOpts,f.refs,n=>{f.refs=n; render();}));
+  if(fg.act){const cl=el("button","btn small","Limpiar filtros"); cl.addEventListener("click",()=>{f.peds=[]; f.refs=[]; state.dd=null; render();}); bar.append(cl);
+    const shown=fg.live.length+(state.showDone||f.peds.length?fg.done.length:0); bar.append(el("span","cnt",`Mostrando ${shown} de ${fg.totalN} pedidos`));}
+  return bar;
+}
+function renderOrders(app,sid){
+  const box=el("div","orders pad"); box.style.paddingTop="14px"; const c=cfg(sid);
+  const fg=filteredGroups(sid), {pend,done,live}=fg;
+  const dl=$("#navieras"); dl.textContent=""; for(const n of new Set(state.orders.map(o=>o.naviera).filter(Boolean))){const op=el("option"); op.value=n; dl.append(op);}
+  const top=el("div","toolbar"); top.style.padding="0";
+  const sm=el("div","summary"); sm.style.marginLeft="0";
+  const a1=el("span"); a1.append(el("b",null,String(live.length))," pedidos en curso");
+  const a2=el("span"); a2.append(el("b",null,fmtE(live.reduce((s,o)=>s+total(o),0)))," en curso");
+  const a3=el("span","p"); a3.append(el("b",null,String(pend.length))," entradas sin pedido");
+  const a4=el("span","m"); a4.append(el("b",null,String(live.filter(o=>o.mod).length))," modificaciones por validar");
+  sm.append(a1,a2,a3,a4); top.append(sm); const eb=exportBtn(()=>exportOrders(sid)); eb.style.marginLeft="auto"; top.append(eb); box.append(top); box.append(filterBar(sid,fg));
+  if(pend.length){
+    box.append(el("h2","sec","Entradas pendientes de confirmar pedido"), el("p","secsub","Cantidades previstas en la revisión de artículos que aún no tienen número de pedido."));
+    for(const o of pend){const d=od(o,sid), cd=el("div","card pendcard"), row=el("div","prow");
+      const u=Object.values(o.lines).reduce((a,b)=>a+b,0);
+      row.append(el("b",null,`Entrada en almacén ${wLabel(d.entryW)}`), el("span",null,`ETA ${wLabel(d.etaW)}`), el("span","tag "+(d.pedidoW<today?"bad":"pend"), d.pedidoW<today?`Debía pedirse en ${wLabel(d.pedidoW)}`:`Pedir en ${wLabel(d.pedidoW)}`), el("span",null,`${Object.keys(o.lines).length} artículos, ${fmt(u)} uds, ${fmtE2(total(o))} a precio de ficha`));
+      const b=el("button","btn pend","Crear pedido"); b.disabled=!state.canWrite; b.style.marginLeft="auto"; b.addEventListener("click",()=>openAsg(sid,o)); row.append(b); cd.append(row); box.append(cd);}
+  }
+  box.append(el("h2","sec","Pedidos lanzados"));
+  if(!live.length) box.append(el("div","card empty",fg.act?(done.length?"Ningún pedido en curso coincide con los filtros.":"Ningún pedido coincide con los filtros."):"No hay pedidos en curso. Crea un pedido a partir de las entradas pendientes para que aparezca aquí."));
+  for(const o of live) box.append(orderCard(o,sid,c));
+  if(done.length){
+    const tl=el("label"); tl.style.cssText="display:flex;gap:6px;align-items:center;font-size:14px;color:var(--ink-2)";
+    const cb=el("input"); cb.type="checkbox"; cb.checked=state.showDone; cb.addEventListener("change",()=>{state.showDone=cb.checked; render();}); tl.append(cb,` Mostrar pedidos ya en almacén (${done.length})`); box.append(tl);
+    if(state.showDone||ordF(sid).peds.length) for(const o of [...done].reverse()) box.append(orderCard(o,sid,c));
+  }
+  app.append(box);
+}
+function linesTable(o,editable){
+  const ro=!state.canWrite||!editable, t=el("table","lines");
+  const th=el("thead"), hr=el("tr"); for(const [x,cl] of [["Referencia",""],["Descripción",""],["Cantidad","n"],["Precio unitario","n"],["Importe línea","n"]]) hr.append(el("th",cl,x)); th.append(hr); t.append(th);
+  const b=el("tbody"); let u=0,e=0;
+  const L=editable?effLines(o):(o.lines||{}), base=o.lines||{}, hasMod=editable&&!isPend(o)&&o.mod;
+  const codes=[...new Set([...Object.keys(L),...(hasMod?Object.keys(base):[])])];
+  for(const code of codes){
+    const q=L[code]||0, bq=base[code]||0, p=prod(code)||{name:code,pallet:1,price:0,code};
+    const up=editable?lp(o,code):lp(o,code,true), bp=lp(o,code,true), fp=p.price||0, removed=hasMod&&!q;
+    const tr=el("tr",(removed?"removed":"")+(state.ordFilter.refs.includes(code)?" hl":""));
+    const c0=el("td",null,dispCode(prod(code)||{code})), c1=el("td",null,p.name+(removed?" (se elimina)":""));
+    if(q&&(p.pallet||1)>1&&q%p.pallet) c1.append(el("span","badpal",`no es múltiplo de ${p.pallet}`));
+    const c2=el("td","n"), c3=el("td","n");
+    if(ro){c2.textContent=fmt(q)||"0"; c3.textContent=fmtE2(up);}
+    else{
+      const qi=el("input"); qi.value=q; qi.inputMode="numeric"; qi.dataset.k=`line|${o._id}|${code}`; qi.setAttribute("aria-label",`Cantidad de ${p.name}`);
+      if(hasMod&&q!==bq){qi.classList.add("modv"); c2.append(el("span","was",`antes ${bq}`));}
+      qi.addEventListener("change",()=>{const v=qi.value.trim()===""?0:num(qi.value); const pal=p.pallet>=1?p.pallet:1;
+        if(isNaN(v)||v<0||!Number.isInteger(v)){toast("Introduce un número entero de unidades."); render(); return;}
+        if(v%pal){toast(`${v} no es múltiplo de ${pal} uds por pallet.`); render(); return;}
+        const n=changeLines(o,(Lx,Px,oo)=>setLine(Lx,Px,oo,code,v)); saveOrder(n); afterMod(n,o.ref);});
+      c2.prepend(qi);
+      const pi=el("input"); pi.value=up.toLocaleString("es-ES",{minimumFractionDigits:2,maximumFractionDigits:4}); pi.inputMode="decimal"; pi.dataset.k=`price|${o._id}|${code}`; pi.setAttribute("aria-label",`Precio unitario de ${p.name}`); pi.disabled=!q;
+      if(hasMod&&q&&Math.abs(up-bp)>1e-9){pi.classList.add("modv"); c3.append(el("span","was",`antes ${fmtE2(bp)}`));}
+      else if(Math.abs(up-fp)>1e-9){pi.classList.add("chg"); pi.title=`Precio de ficha: ${fmtE2(fp)}`;}
+      pi.addEventListener("change",()=>{const raw=pi.value.trim(); const v=raw===""?fp:parsePrice(raw); if(isNaN(v)||v<0){toast("El precio debe ser un número igual o mayor que cero"); render(); return;}
+        const n=changeLines(o,(Lx,Px)=>{Px[code]=Math.round(v*10000)/10000;}); saveOrder(n); afterMod(n,o.ref);});
+      c3.prepend(pi);
+    }
+    tr.append(c0,c1,c2,c3,el("td","n",fmtE2(q*up))); b.append(tr); u+=q; e+=q*up;
+  }
+  t.append(b); const tf=el("tfoot"), fr=el("tr"); fr.append(el("td",null,"Total"),el("td",null,""),el("td","n",fmt(u)||"0"),el("td","n",""),el("td","n",fmtE2(e))); tf.append(fr); t.append(tf);
+  return t;
+}
+function orderCard(o,sid,c){
+  const d=od(o,sid), cd=el("article","card"+(o.mod?" modcard":"")), ro=!state.canWrite, open=state.expanded.has(o._id)||(state.ordFilter.sid===sid&&state.ordFilter.refs.length>0), hopen=state.histOpen.has(o._id);
+  const totU=Object.values(effLines(o)).reduce((a,b)=>a+b,0);
+  const h=el("div","hdr");
+  const fld=(lab,sub,input)=>{const l=el("label"); l.append(lab); if(sub) l.append(el("small",null,sub)); l.append(input); return l;};
+  const iRef=el("input","ref"); iRef.value=o.ref||""; iRef.disabled=ro; iRef.dataset.k="ref|"+o._id;
+  iRef.addEventListener("change",()=>{const v=iRef.value.trim(); if(!v){toast("El número de pedido no puede quedar vacío"); render(); return;} saveOrder(Object.assign(clone(o),{ref:v}));});
+  const dIn=f=>{const i=el("input"); i.type="date"; i.value=o[f]||""; i.disabled=ro; i.dataset.k=f+"|"+o._id;
+    i.addEventListener("change",()=>{if(f==="eta"&&!i.value){toast("La ETA es obligatoria: sin ella el pedido no se puede situar en el calendario"); render(); return;}
+      const n=Object.assign(clone(o),{[f]:i.value}); saveOrder(n); if(f==="eta") toast(`Entrada en almacén movida a ${wLabel(od(n,sid).entryW)}`);}); return i;};
+  const iNav=el("input"); iNav.value=o.naviera||""; iNav.setAttribute("list","navieras"); iNav.disabled=ro; iNav.dataset.k="nav|"+o._id; iNav.addEventListener("change",()=>saveOrder(Object.assign(clone(o),{naviera:iNav.value.trim()})));
+  const iSz=el("select"); iSz.disabled=ro; const e0=el("option",null,"Sin indicar"); e0.value=""; iSz.append(e0); for(const [v,l] of SIZES){const op=el("option",null,l); op.value=v; iSz.append(op);} iSz.value=o.tamano||""; iSz.addEventListener("change",()=>saveOrder(Object.assign(clone(o),{tamano:iSz.value})));
+  const tot=el("div","tot",fmtE2(total(o))); if(o.mod) tot.append(el("s",null,fmtE2(total(o,true))));
+  h.append(fld("Nº pedido",null,iRef), fld("CRD","Fin de producción",dIn("crd")), fld("ETD","Embarque",dIn("etd")), fld("ETA","Llegada a puerto",dIn("eta")), fld("Naviera",null,iNav), fld("Tamaño",null,iSz), fld("Importe total",`${fmt(totU)||0} uds`,tot));
+  cd.append(h);
+  if(o.mod){
+    const mb=el("div","modbar"); const t=el("span"); t.append(el("b",null,"Modificación pendiente de validar por el proveedor"),` desde el ${dLong(parseKey(o.mod.at))}. Importe ${fmtE2(total(o,true))} pasa a ${fmtE2(total(o))}.`); mb.append(t);
+    const acts=el("div","acts"); const r1=el("button","btn danger small","No confirmada: volver a la anterior"); r1.disabled=ro; r1.addEventListener("click",()=>rejectMod(o));
+    const r2=el("button","btn ok small","Confirmada: guardar nueva versión"); r2.disabled=ro; r2.addEventListener("click",()=>openVer(o)); acts.append(r1,r2); mb.append(acts); cd.append(mb);
+  }
+  const m=el("div","cmeta"); const [stx,scl]=orderState(o,sid); m.append(el("span","tag "+scl,stx));
+  const mi=(t,v)=>{const s=el("span"); s.append(t+" ",el("b",null,v)); return s;};
+  m.append(mi("Entrada en almacén",`${wLabel(d.entryW)}, ${dLong(d.entryW)}`), mi(o.etd?"Pago previsto":"Pago previsto (ETD estimada)",dLong(d.pago)));
+  if(o.crd&&o.etd&&o.crd>o.etd) m.append(el("span","tag bad","El CRD es posterior a la ETD"));
+  if(o.etd&&o.etd>o.eta) m.append(el("span","tag bad","La ETD es posterior a la ETA"));
+  const tg=el("button","btn push",open?"Ocultar productos":`Ver productos (${Object.keys(effLines(o)).length})`); tg.setAttribute("aria-expanded",String(open)); tg.addEventListener("click",()=>{open?state.expanded.delete(o._id):state.expanded.add(o._id); render();}); m.append(tg);
+  const nh=(o.history||[]).length;
+  if(nh){const hb=el("button","btn",hopen?"Ocultar historial":`Historial (${nh} ${nh===1?"versión anterior":"versiones anteriores"})`); hb.addEventListener("click",()=>{hopen?state.histOpen.delete(o._id):state.histOpen.add(o._id); render();}); m.append(hb);}
+  const del=el("button","btn danger","Eliminar pedido"); del.disabled=ro; del.addEventListener("click",()=>{if(confirm(`¿Eliminar el pedido ${o.ref} y todas sus líneas?`)) delOrder(o);}); m.append(del);
+  cd.append(m);
+  if(open){
+    cd.append(linesTable(o,true));
+    if(!ro){const al=el("div","addline"); const s=el("select"); s.setAttribute("aria-label","Artículo a añadir"); const o0=el("option",null,"Añadir artículo…"); o0.value=""; s.append(o0);
+      for(const p of prodsOf(sid)) if(!effLines(o)[p.code]){const op=el("option",null,`${p.name} (${dispCode(p)})`); op.value=p.code; s.append(op);}
+      const qi=el("input"); qi.placeholder="Uds"; qi.inputMode="numeric"; qi.setAttribute("aria-label","Unidades");
+      const bt=el("button","btn","Añadir"); bt.addEventListener("click",()=>{const code=s.value, v=num(qi.value), p=prod(code); if(!code){toast("Elige un artículo"); return;}
+        if(isNaN(v)||v<=0||!Number.isInteger(v)){toast("Introduce un número entero de unidades."); return;} const pal=p.pallet>=1?p.pallet:1; if(v%pal){toast(`${v} no es múltiplo de ${pal} uds por pallet.`); return;}
+        const n=changeLines(o,(L,P,oo)=>setLine(L,P,oo,code,v)); saveOrder(n); afterMod(n,o.ref);});
+      al.append(s,qi,bt); cd.append(al);}
+  }
+  if(hopen&&nh){
+    const hs=el("div","hist");
+    const vers=[...o.history].map((v,i)=>({v,i})).reverse();
+    for(const {v,i} of vers){const h3=el("h3",null,v.ref); h3.append(el("small",null,`${i===0?"Versión inicial":"Versión "+(i+1)}. Sustituida el ${dLong(parseKey(v.replacedAt))}. ETA ${v.eta?dLong(parseKey(v.eta)):"sin fecha"}`)); hs.append(h3, linesTable({lines:v.lines,prices:v.prices,_id:o._id+"-h"+i,status:"hist"},false));}
+    cd.append(hs);
+  }
+  return cd;
+}
+
+function renderPlanMenu(app){
+  document.title="Planificador de compras";
+  const h=el("header","top pad"); const b=el("div","brand"); const bk=el("a","back","‹ APP B10"); bk.href="#"; b.append(bk,el("h1",null,"Planificador de compras"),el("p",null,"Elige qué quieres hacer.")); h.append(b,whoChip()); app.append(h);
+  const g=el("div","modules pad");
+  if(perm("compras")!=="ninguno"){const a=el("a","mod-card"); a.href="#proveedores"; a.append(el("h2",null,"Planificador de compras"),el("p",null,"Revisión de artículos para compras y pedidos lanzados, por proveedor."));
+    const t=el("div","stats"); let br=0,pe=0; for(const s of state.suppliers){const st=supStats(s._id); br+=st.brk; pe+=st.pend;} if(br) t.append(el("span","tag bad",`${br} artículos con rotura`)); if(pe) t.append(el("span","tag pend",`${pe} entradas sin pedido`)); a.append(t); g.append(a);}
+  if(perm("pagos")!=="ninguno"){const a=el("a","mod-card pay"); a.href="#pagos"; a.append(el("h2",null,"Previsión pagos importaciones"),el("p",null,"Calendario de pagos de contenedores a partir de las fechas de embarque y los importes de los pedidos."));
+    const rows=payRows(), t=el("div","stats"); const nx=sumMon(rows.filter(r=>!r.paid&&r.date<addW(today,4))); t.append(el("span","tag neutral",`${isZero(nx)?"Nada":fmtAny0(nx)} en las próximas 4 semanas`)); const ov=rows.filter(r=>r.late).length; if(ov) t.append(el("span","tag bad",`${ov} vencidos`)); a.append(t); g.append(a);}
+  app.append(g);
+}
+
+function payRows(){
+  const rows=[];
+  for(const o of state.orders){
+    const s=sup(o.supplier); if(!s) continue; const c=cfg(o.supplier), d=od(o,o.supplier);
+    if(isPend(o)){ if(!Object.keys(o.lines||{}).length) continue;
+      rows.push({mon:c.moneda||"EUR",o,sid:o.supplier,supName:s.name,ref:"Sin pedido (entrada "+wLabel(d.entryW)+")",est:true,etdReal:false,etd:d.etd,date:d.pago,amount:total(o),paid:false,late:false,mod:false}); continue;}
+    if(orderState(o,o.supplier)[0]==="En almacén"&&!o.pagado&&d.pago<addW(today,-26)) continue;
+    const paid=!!o.pagado;
+    rows.push({mon:c.moneda||"EUR",o,sid:o.supplier,supName:s.name,ref:o.ref,est:false,etdReal:!!o.etd,etd:d.etd,date:d.pago,amount:total(o),modAmount:o.mod?total(o,true):null,paid,paidAt:o.pagado||"",late:!paid&&d.pago<utcToday,mod:!!o.mod});
+  }
+  return rows.sort((a,b)=>a.date-b.date);
+}
+function payVisible(){const f=state.payFilter; return payRows().filter(r=>(!f.sup||r.sid===f.sup)&&(f.pend||!r.est)&&(f.paid||!r.paid));}
+function monthKey(d){return d.getUTCFullYear()+"-"+String(d.getUTCMonth()+1).padStart(2,"0");}
+function monthLabel(k){const [y,m]=k.split("-").map(Number); return new Date(Date.UTC(y,m-1,1)).toLocaleDateString("es-ES",{month:"long",year:"numeric",timeZone:"UTC"});}
+function renderPagos(app){
+  document.title="Previsión pagos importaciones";
+  const h=el("header","top pad"); const b=el("div","brand"); const bk=el("a","back","‹ Planificador de compras"); bk.href="#planificador"; b.append(bk,el("h1",null,"Previsión pagos importaciones"),el("p",null,"Fecha de pago prevista: ETD menos los días de antelación de cada proveedor.")); h.append(b,whoChip()); app.append(h);
+  const box=el("div","pad"); const f=state.payFilter;
+  const tb=el("div","toolbar"); tb.style.paddingTop="0";
+  const sl=el("select"); sl.setAttribute("aria-label","Proveedor"); const o0=el("option",null,"Todos los proveedores"); o0.value=""; sl.append(o0);
+  for(const s of [...state.suppliers].sort((a,b)=>(a.sort||0)-(b.sort||0))){if(!state.orders.some(o=>o.supplier===s._id)) continue; const op=el("option",null,s.name); op.value=s._id; sl.append(op);} sl.value=f.sup; sl.addEventListener("change",()=>{f.sup=sl.value; render();});
+  sl.style.cssText="border:1px solid var(--line);border-radius:6px;padding:6px 10px;background:var(--surface)";
+  const l1=el("label"); const c1=el("input"); c1.type="checkbox"; c1.checked=f.pend; c1.addEventListener("change",()=>{f.pend=c1.checked; render();}); l1.append(c1," Incluir entradas aún sin pedido (estimado)");
+  const l2=el("label"); const c2=el("input"); c2.type="checkbox"; c2.checked=f.paid; c2.addEventListener("change",()=>{f.paid=c2.checked; render();}); l2.append(c2," Mostrar pagados");
+  const eb=exportBtn(exportPagos); eb.style.marginLeft="auto"; tb.append(sl,l1,l2,eb); box.append(tb);
+  const rows=payVisible(), open=rows.filter(r=>!r.paid);
+  const sum=(arr)=>sumMon(arr);
+  const k=el("div","kpis");
+  const kp=(l,v,cl)=>{const d=el("div","kpi"+(cl?" "+cl:"")); d.append(el("small",null,l),el("b",null,v)); return d;};
+  const endM=new Date(Date.UTC(utcToday.getUTCFullYear(),utcToday.getUTCMonth()+1,1));
+  k.append(kp("Vencido sin pagar",fmtAny0(sum(open.filter(r=>r.late))),open.some(r=>r.late)?"bad":""), kp("Próximas 4 semanas",fmtAny0(sum(open.filter(r=>!r.late&&r.date<addW(today,4))))), kp("Resto de este mes",fmtAny0(sum(open.filter(r=>!r.late&&r.date<endM)))), kp("Próximos 3 meses",fmtAny0(sum(open.filter(r=>r.date<addD(utcToday,92))))), kp("Total pendiente de pago",fmtAny0(sum(open))));
+  box.append(k);
+  // Resumen mensual por proveedor
+  const months=[...new Set(open.map(r=>monthKey(r.date)))].sort().slice(0,8);
+  if(months.length){
+    box.append(el("h2","sec","Resumen mensual"));
+    const tw=el("div","tblwrap"); tw.style.marginTop="8px"; const t=el("table","tbl"); const hr=el("tr"); hr.append(el("th",null,"Proveedor")); for(const m of months) hr.append(el("th","n",monthLabel(m))); hr.append(el("th","n","Total")); const th=el("thead"); th.append(hr); t.append(th);
+    const tbd=el("tbody"); const sups=[...new Set(open.map(r=>r.supName))];
+    const tot=months.map(()=>({}));
+    for(const sn of sups){const tr=el("tr"); tr.append(el("td",null,sn)); let s2={}; months.forEach((m,i)=>{const v=sum(open.filter(r=>r.supName===sn&&monthKey(r.date)===m)); addMon(tot[i],v); addMon(s2,v); tr.append(el("td","n",isZero(v)?"":fmtAny0(v)));}); tr.append(el("td","n",fmtAny0(s2))); tbd.append(tr);}
+    const ft=el("tr","wk"); ft.append(el("td",null,"Total")); tot.forEach(v=>ft.append(el("td","n",fmtAny0(v)))); ft.append(el("td","n",fmtAny0(tot.reduce((a,b)=>addMon(a,b),{})))); tbd.append(ft);
+    t.append(tbd); tw.append(t); box.append(tw);
+  }
+  box.append(el("h2","sec","Calendario de pagos"));
+  const tw=el("div","tblwrap"); tw.style.marginTop="8px"; const t=el("table","tbl");
+  const th=el("thead"), hr=el("tr"); for(const [x,c] of [["Fecha de pago",""],["Proveedor",""],["Pedido",""],["ETD",""],["Situación",""],["Importe","n"],["",""]]) hr.append(el("th",c,x)); th.append(hr); t.append(th);
+  const tbd=el("tbody");
+  if(!rows.length){const tr=el("tr"),td=el("td","empty"); td.colSpan=7; td.textContent="No hay pagos previstos con estos filtros."; tr.append(td); tbd.append(tr);}
+  let cur=null, wsum={}, wrow=null;
+  const closeW=()=>{if(wrow) wrow.lastChild.previousSibling.textContent=fmtAny2(wsum);};
+  for(const r of rows){
+    const wk=key(mondayU(r.date));
+    if(wk!==cur){closeW(); cur=wk; wsum={}; wrow=el("tr","wk"); const td=el("td",null,`Semana ${wLabel(parseKey(wk))}, del ${dLong(parseKey(wk))}`); td.colSpan=5; wrow.append(td,el("td","n",""),el("td")); tbd.append(wrow);}
+    if(!r.paid) addMon(wsum,{[r.mon]:r.amount});
+    const tr=el("tr",(r.late?"late":r.paid?"paid":r.est?"est":""));
+    const sit=r.paid?`Pagado el ${dLong(parseKey(r.paidAt))}`:r.late?"Vencido":r.est?"Estimado: entrada sin pedido":(r.etdReal?"ETD confirmada":"ETD estimada");
+    const st=el("td",null,sit); if(r.mod) st.append(el("span","tag mod",` Incluye modificación por validar. Confirmado: ${fmtM(r.modAmount,r.mon,2)}`));
+    tr.append(el("td",null,dLong(r.date)), el("td",null,r.supName), el("td",null,r.ref), el("td",null,dLong(r.etd)+(r.etdReal?"":" (est.)")), st, el("td","n",fmtM(r.amount,r.mon,2)));
+    const ac=el("td");
+    if(!r.est&&state.canWrite){const bt=el("button","btn small "+(r.paid?"":"ok"),r.paid?"Deshacer pago":"Marcar pagado"); bt.addEventListener("click",()=>{const n=clone(r.o); if(r.paid) delete n.pagado; else n.pagado=key(utcToday); saveOrder(n); toast(r.paid?`${r.ref}: pago deshecho`:`${r.ref}: marcado como pagado`);}); ac.append(bt);}
+    tr.append(ac); tbd.append(tr);
+  }
+  closeW();
+  t.append(tbd); tw.append(t); box.append(tw);
+  box.append(el("p","secsub","Los pagos parciales y los depósitos por proveedor se añadirán cuando esté la tabla maestra de proveedores. De momento se prevé un único pago por pedido."));
+  app.append(box);
+}
+function exportPagos(){
+  const wb=XLSX.utils.book_new(), rows=payVisible();
+  const A=[["Fecha de pago","Semana","Proveedor","Pedido","ETD","ETD confirmada","Situación","Moneda","Importe previsto","Importe confirmado (si hay modificación por validar)","Pagado el"]];
+  for(const r of rows) A.push([xDate(r.date),wLabel(r.date),r.supName,r.ref,xDate(r.etd),r.etdReal?"Sí":"No",r.paid?"Pagado":r.late?"Vencido":r.est?"Estimado sin pedido":"Previsto",r.mon,Math.round(r.amount*100)/100,r.modAmount!=null?Math.round(r.modAmount*100)/100:"",r.paidAt?xDate(parseKey(r.paidAt)):""]);
+  XLSX.utils.book_append_sheet(wb,sheet(A,[14,9,24,26,12,15,20,14,30,12]),"Calendario de pagos");
+  const open=rows.filter(r=>!r.paid), months=[...new Set(open.map(r=>monthKey(r.date)))].sort(), sups=[...new Set(open.map(r=>r.supName))];
+  const M=[["Proveedor","Moneda",...months.map(monthLabel),"Total"]];
+  for(const sn of sups){const vals=months.map(m=>Math.round(open.filter(r=>r.supName===sn&&monthKey(r.date)===m).reduce((a,r)=>a+r.amount,0)*100)/100); M.push([sn,(open.find(r=>r.supName===sn)||{}).mon||"",...vals,vals.reduce((a,b)=>a+b,0)]);}
+  XLSX.utils.book_append_sheet(wb,sheet(M,[24,...months.map(()=>16),14]),"Resumen mensual");
+  saveXlsx(wb,`Prevision_pagos_importaciones_${stamp()}.xlsx`);
+}
+
+
+function exportHome(){
+  const wb=XLSX.utils.book_new();
+  const rows=[["Proveedor","Familia","Contacto","Correo","Artículos","Con rotura","Bajo seguridad","Datos incompletos","Entradas sin pedido","Modificaciones por validar","Pedidos en curso"]];
+  for(const s of state.suppliers){const st=supStats(s._id); rows.push([s.name,s.familia||"",s.contacto||"",s.email||"",st.n,st.brk,st.und,st.inc,st.pend,st.mods,st.live]);}
+  XLSX.utils.book_append_sheet(wb,sheet(rows,[26,22,18,30,10,10,13,15,17,22,15]),"Proveedores");
+  saveXlsx(wb,`Proveedores_${stamp()}.xlsx`);
+}
+function exportArticles(sid){
+  const s=sup(sid), c=cfg(sid), W=weeks(sid), wb=XLSX.utils.book_new(), vis=visibleProducts(sid);
+  const head=["Código","Descripción","Concepto",...W.map(d=>`${wLabel(d)} ${dShort(d)}`)];
+  const rows=[head]; const TONE={conf:"Confirmada",pnd:"Pendiente de pedido",mod:"Modificación por validar"};
+  for(const {p,r} of vis){
+    for(const [k,label,opt] of rowsFor(c)){
+      if(state.filters.compact&&opt) continue;
+      const arr={dem:r.dem,entry:r.entry,ped:r.ped,carga:r.carga,real:r.real,res:r.res,over:r.over}[k].map(v=>Math.round(v*100)/100);
+      rows.push([dispCode(p),p.name,label+(k==="entry"?` (ETA + ${c.despacho} sem)`:""),...arr.map(v=>(["entry","ped","carga","res"].includes(k)&&!v)?"":v)]);
+      if(k==="entry") rows.push([dispCode(p),p.name,"Situación de la entrada",...r.tone.map(t=>TONE[t]||"")]);
+    }
+  }
+  XLSX.utils.book_append_sheet(wb,sheet(rows,[16,26,30,...W.map(()=>10)]),"Revisión semanal");
+  const a=[["Código","Descripción","Modelo","Stock actual","Venta media semanal","Stock de seguridad","Uds por pallet","Precio proveedor","Sugerencia","Avisos","Datos que faltan"]];
+  for(const {p,r} of vis){const sg=r.sug?(r.sug.late?`Vas tarde: bajo seguridad en ${wLabel(r.sug.week)}. Pide ya ${r.sug.qty} uds`:`Lanzar en ${wLabel(r.sug.launch)}: ${r.sug.qty} uds`):(r.miss.length?"":"Cubierto todo el horizonte");
+    a.push([dispCode(p),p.name,p.model||"",p.stock??"",p.avg??"",p.ss??"",p.pallet??"",p.price??"",sg,r.warnings.join(". "),r.miss.join(", ")]);}
+  XLSX.utils.book_append_sheet(wb,sheet(a,[16,26,12,12,18,16,13,15,40,50,30]),"Artículos");
+  const pr=[["Parámetro","Valor"],["Pedido a puerto (sem)",c.plazo],["Tránsito (sem)",c.transito],["Despacho (sem)",c.despacho],["Pago antes de embarque (días)",c.pagoDias],["Cobertura por pedido (sem)",c.cobertura],["Fecha de exportación",xDate(utcToday)]];
+  XLSX.utils.book_append_sheet(wb,sheet(pr,[30,14]),"Parámetros");
+  saveXlsx(wb,`Revision_articulos_${safe(s.name)}_${stamp()}.xlsx`);
+}
+function exportOrders(sid){
+  const s=sup(sid), wb=XLSX.utils.book_new(), {pend,done,live}=filteredGroups(sid), shown=[...live,...(state.showDone||ordF(sid).peds.length?done:[])];
+  const P=[["Nº pedido","Estado","CRD","ETD","ETA","Entrada en almacén","Semana entrada","Naviera","Tamaño","Uds","Importe total","Pago previsto","Modificación pendiente","Importe versión confirmada"]];
+  for(const o of shown){const d=od(o,sid); P.push([o.ref,orderState(o,sid)[0],o.crd?xDate(parseKey(o.crd)):"",o.etd?xDate(parseKey(o.etd)):"",xDate(d.eta),xDate(d.entryW),wLabel(d.entryW),o.naviera||"",sizeLabel(o.tamano),Object.values(effLines(o)).reduce((a,b)=>a+b,0),Math.round(total(o)*100)/100,xDate(d.pago),o.mod?"Sí":"No",Math.round(total(o,true)*100)/100]);}
+  XLSX.utils.book_append_sheet(wb,sheet(P,[16,22,12,12,12,16,14,14,18,8,14,14,20,22]),"Pedidos");
+  const L=[["Nº pedido","Referencia","Descripción","Cantidad","Precio unitario","Importe línea","Situación","Cantidad confirmada","Precio confirmado"]];
+  for(const o of shown){const E=effLines(o), B=o.lines||{}; for(const code of new Set([...Object.keys(E),...Object.keys(B)])){const q=E[code]||0, bq=B[code]||0, up=lp(o,code), bp=lp(o,code,true); const ch=o.mod&&(q!==bq||Math.abs(up-bp)>1e-9);
+    L.push([o.ref,dispCode(prod(code)||{code}),(prod(code)||{name:code}).name,q,up,Math.round(q*up*100)/100,ch?(q?"Modificación por validar":"Se elimina (por validar)"):"Confirmada",bq,bp]);}}
+  XLSX.utils.book_append_sheet(wb,sheet(L,[16,16,28,10,14,14,24,18,18]),"Líneas");
+  const N=[["Semana entrada","ETA (semana)","Pedir en","Referencia","Descripción","Cantidad","Precio de ficha","Importe"]];
+  for(const o of pend){const d=od(o,sid); for(const [code,q] of Object.entries(o.lines||{})){const pp=(prod(code)||{}).price||0; N.push([wLabel(d.entryW),wLabel(d.etaW),wLabel(d.pedidoW),dispCode(prod(code)||{code}),(prod(code)||{name:code}).name,q,pp,q*pp]);}}
+  XLSX.utils.book_append_sheet(wb,sheet(N,[14,12,10,16,28,10,14,12]),"Pendientes de pedido");
+  const H=[["Pedido actual","Versión","Nº pedido de esa versión","Sustituida el","Referencia","Descripción","Cantidad","Precio unitario","Importe línea"]];
+  for(const o of shown) (o.history||[]).forEach((v,i)=>{for(const [code,q] of Object.entries(v.lines||{})){const up=(v.prices||{})[code]??((prod(code)||{}).price||0); H.push([o.ref,i===0?"Versión inicial":`Versión ${i+1}`,v.ref,xDate(parseKey(v.replacedAt)),dispCode(prod(code)||{code}),(prod(code)||{name:code}).name,q,up,Math.round(q*up*100)/100]);}});
+  XLSX.utils.book_append_sheet(wb,sheet(H,[16,16,22,14,16,28,10,14,14]),"Historial");
+  saveXlsx(wb,`Pedidos_${safe(s.name)}_${stamp()}.xlsx`);
+}
+
+document.addEventListener("click",()=>{if(state.dd){state.dd=null; render();}});
+document.addEventListener("keydown",e=>{if(e.key==="Escape"&&state.dd){state.dd=null; render();}});
+/* ===== Datos: lectura y escritura en Supabase ===== */
+const S = { loaded:false, loading:false, idMap:{} };
+const chk = r => { if (r && r.error) throw r.error; return r; };
+async function cargar(){
+  S.loading = true;
+  try{
+    const [pv, ap, pr, pe] = await Promise.all([
+      sb.schema("maestros").from("proveedores").select("id,codigo_ax,nombre,alias,moneda,grupo_compra,es_importacion,contacto,email,plazo_semanas,transito_semanas,despacho_semanas,dias_pago_antes_embarque,cobertura_semanas"),
+      sb.schema("maestros").from("articulo_proveedor").select("id,articulo_id,proveedor_id,precio,moneda,uds_pallet,orden,articulos(id,codigo_ax,descripcion,modelo,estado,stock_actual,venta_media_semanal,stock_seguridad)").eq("planificar", true),
+      sb.schema("compras").from("prevision_venta").select("articulo_id,semana,unidades").gte("semana", key(today)),
+      sb.schema("compras").from("pedidos").select("*").order("eta"),
+    ]);
+    for (const r of [pv, ap, pr, pe]) chk(r);
+    const ov = {}; for (const r of pr.data){ (ov[r.articulo_id] = ov[r.articulo_id] || {})[r.semana] = +r.unidades; }
+    const conProd = new Set(ap.data.map(a => a.proveedor_id));
+    state.suppliers = pv.data.filter(p => p.es_importacion || conProd.has(p.id)).map(p => ({
+      _id:"prov-"+p.id, dbId:p.id, codigo_ax:p.codigo_ax, name:p.nombre, alias:p.alias, familia:p.grupo_compra || "", contacto:p.contacto || "", email:p.email || "",
+      moneda:p.moneda || "EUR", plazo:p.plazo_semanas ?? 12, transito:p.transito_semanas ?? 5, despacho:p.despacho_semanas ?? 1,
+      pagoDias:p.dias_pago_antes_embarque ?? 15, cobertura:p.cobertura_semanas ?? 8, horizonte:52, sort: conProd.has(p.id) ? 0 : 1 }));
+    state.products = ap.data.filter(a => a.articulos).map(a => ({
+      _id:"ap-"+a.id, apId:a.id, artId:a.articulos.id, code:String(a.articulos.id), codigo_ax:a.articulos.codigo_ax, estado:a.articulos.estado,
+      name:a.articulos.descripcion, model:a.articulos.modelo || "", stock:num0(a.articulos.stock_actual), avg:num0(a.articulos.venta_media_semanal), ss:num0(a.articulos.stock_seguridad),
+      pallet:a.uds_pallet, price:num0(a.precio), supplier:"prov-"+a.proveedor_id, sort:a.orden ?? 999, overrides: ov[a.articulos.id] || {} }));
+    state.orders = pe.data.map(fromRow);
+    state.loaded.s = true; S.loaded = true;
+  } catch(e){ console.error(e); toast("No se han podido cargar los datos del planificador."); S.loaded = true; }
+  S.loading = false; render();
+}
+const num0 = v => v == null ? null : +v;
+function fromRow(r){
+  return { _id:"ped-"+r.id, dbId:r.id, supplier:"prov-"+r.proveedor_id, status:r.estado, ref:r.referencia || "", crd:r.crd || "", etd:r.etd || "", eta:r.eta,
+    naviera:r.naviera || "", tamano:r.tamano || "", lines:r.lineas || {}, prices:r.precios || {}, mod:r.modificacion || undefined, history:r.historial || [], pagado:r.pagado_en || undefined };
+}
+function toRow(o){
+  return { proveedor_id:sup(o.supplier).dbId, estado:o.status, referencia:o.ref || null, crd:o.crd || null, etd:o.etd || null, eta:o.eta,
+    naviera:o.naviera || null, tamano:o.tamano || null, lineas:o.lines || {}, precios:o.prices || {}, modificacion:o.mod || null, historial:o.history || [], pagado_en:o.pagado || null };
+}
+const queues = {};
+function enqueue(k, fn){ const p = (queues[k] || Promise.resolve()).then(fn).then(() => true).catch(e => { console.error(e); toast(msgErr(e)); cargar(); return false; }); queues[k] = p; return p; }
+function msgErr(e){ const m = (e && (e.message || "")) || ""; if ((e && e.code === "42501") || /row-level security|permission/i.test(m)) return "No tienes permiso para guardar este cambio.";
+  if (e && e.code === "23505") return "Ya existe un registro con ese número o código."; return "No se ha podido guardar. Revisa la conexión y vuelve a intentarlo."; }
+function saveSup(sid, patch){
+  const s = Object.assign({}, sup(sid), patch); const i = state.suppliers.findIndex(x => x._id === sid); state.suppliers[i] = s; render();
+  const M = { plazo:"plazo_semanas", transito:"transito_semanas", despacho:"despacho_semanas", pagoDias:"dias_pago_antes_embarque", cobertura:"cobertura_semanas" };
+  const row = {}; for (const k of Object.keys(patch)) if (M[k]) row[M[k]] = patch[k];
+  return enqueue(sid, async () => chk(await sb.schema("maestros").from("proveedores").update(row).eq("id", s.dbId)));
+}
+function saveProduct(p){
+  const old = state.products.find(x => x._id === p._id) || {}; const i = state.products.findIndex(x => x._id === p._id);
+  if (i >= 0) state.products[i] = p; render();
+  return enqueue(p._id, async () => {
+    const a = {}, F = { stock:"stock_actual", avg:"venta_media_semanal", ss:"stock_seguridad", name:"descripcion", model:"modelo", codigo_ax:"codigo_ax", estado:"estado" };
+    for (const [k,c] of Object.entries(F)) if (old[k] !== p[k]) a[c] = p[k] === "" ? null : p[k];
+    if (Object.keys(a).length) chk(await sb.schema("maestros").from("articulos").update(a).eq("id", p.artId));
+    const b = {}; if (old.pallet !== p.pallet) b.uds_pallet = p.pallet; if (old.price !== p.price){ b.precio = p.price; b.precio_origen = "manual"; }
+    if (Object.keys(b).length) chk(await sb.schema("maestros").from("articulo_proveedor").update(b).eq("id", p.apId));
+    const o0 = old.overrides || {}, o1 = p.overrides || {};
+    const ups = Object.keys(o1).filter(k => o1[k] !== o0[k]), dels = Object.keys(o0).filter(k => !(k in o1));
+    if (ups.length) chk(await sb.schema("compras").from("prevision_venta").upsert(ups.map(k => ({ articulo_id:p.artId, semana:k, unidades:o1[k] })), { onConflict:"articulo_id,semana" }));
+    if (dels.length) chk(await sb.schema("compras").from("prevision_venta").delete().eq("articulo_id", p.artId).in("semana", dels));
+  });
+}
+function saveOrder(o){
+  const i = state.orders.findIndex(x => x._id === o._id); if (i >= 0) state.orders[i] = o; else state.orders.push(o); render();
+  return enqueue(o._id, async () => {
+    const id = o.dbId || S.idMap[o._id];
+    if (id) chk(await sb.schema("compras").from("pedidos").update(toRow(o)).eq("id", id));
+    else { const r = chk(await sb.schema("compras").from("pedidos").insert(toRow(o)).select("id").single()); S.idMap[o._id] = r.data.id; for (const x of state.orders) if (x._id === o._id) x.dbId = r.data.id; }
+  });
+}
+function delOrder(o){
+  state.orders = state.orders.filter(x => x._id !== o._id); render();
+  return enqueue(o._id, async () => { const id = o.dbId || S.idMap[o._id]; if (id) chk(await sb.schema("compras").from("pedidos").delete().eq("id", id)); });
+}
+
+/* ===== Ficha de artículo: nuevo o existente ===== */
+let prodCtx = null;
+const PF = { codigo_ax:"pCode", model:"pModel", name:"pName", stock:"pStock", avg:"pAvg", ss:"pSS", pallet:"pPal", price:"pPrice" };
+function openProd(p, sid){
+  const isNew = !p; prodCtx = { p, sid, isNew };
+  $("#prodTitle").textContent = isNew ? `Nuevo artículo de ${sup(sid).name}` : p.name;
+  $("#prodSub").textContent = isNew ? "Si aún no está dado de alta en AX (por ejemplo, una muestra), deja vacío el código: quedará como muestra sin referencia." : `${dispCode(p)}${p.model ? ". Modelo " + p.model : ""}. Precios en ${cfg(sid).moneda}.`;
+  const src = p || {};
+  for (const [f,id] of Object.entries(PF)){ const i = $("#"+id); i.value = src[f] == null ? "" : src[f]; i.disabled = !state.canWrite || (f === "codigo_ax" && !isNew && !!src.codigo_ax); }
+  for (const box of document.querySelectorAll("#fProd .f[data-f]")){ const f = box.dataset.f; const r = REQ.find(x => x[0] === f); if (!r) continue;
+    const miss = !isNew && missing(src).includes(r[1]); box.classList.toggle("miss", miss); const h = box.querySelector(".hint"); if (h) h.textContent = miss ? "Falta este dato para planificar." : ""; }
+  $("#pErr").textContent = ""; $("#prodSave").textContent = isNew ? "Crear artículo" : "Guardar"; $("#prodSave").disabled = !state.canWrite;
+  $("#dlgProd").showModal(); setTimeout(() => $("#"+(isNew ? "pCode" : "pStock")).focus(), 30);
+}
+$("#prodCancel").addEventListener("click", () => $("#dlgProd").close());
+$("#fProd").addEventListener("submit", async ev => {
+  ev.preventDefault(); if (!state.canWrite){ $("#dlgProd").close(); return; }
+  const { p, sid, isNew } = prodCtx, val = f => $("#"+PF[f]).value.trim(), err = m => { $("#pErr").textContent = m; };
+  const code = val("codigo_ax").toUpperCase(), name = val("name");
+  if (code && !/^[A-Z0-9._\-]+$/.test(code)) return err("El código solo puede llevar letras, números, guiones y puntos (sin espacios).");
+  if (!name) return err("La descripción es obligatoria.");
+  const out = {}; for (const [f] of REQ){ const raw = val(f); if (raw === ""){ out[f] = null; continue; } const v = f === "price" ? parsePrice(raw) : num(raw);
+    if (isNaN(v)) return err(`Revisa el campo ${REQ.find(x => x[0] === f)[1]}: debe ser un número.`);
+    if (f === "pallet" && (v < 1 || !Number.isInteger(v))) return err("Las uds por pallet deben ser un entero de 1 o más.");
+    if (f !== "stock" && v < 0) return err(`El ${REQ.find(x => x[0] === f)[1]} no puede ser negativo.`); out[f] = v; }
+  if (!isNew){
+    const np = Object.assign(clone(p), { name, model:val("model") }, out);
+    if (code && !p.codigo_ax){ np.codigo_ax = code; np.estado = "activo"; }
+    $("#dlgProd").close(); saveProduct(np); const ms = missing(np); toast(ms.length ? `Artículo guardado. Faltan: ${ms.join(", ")}` : "Artículo guardado"); return;
+  }
+  const bt = $("#prodSave"); bt.disabled = true;
+  try{
+    let artId = null;
+    if (code){ const ex = chk(await sb.schema("maestros").from("articulos").select("id").eq("codigo_ax", code).maybeSingle()); if (ex.data) artId = ex.data.id; }
+    if (artId){
+      if (state.products.some(x => x.artId === artId && x.supplier === sid)){ bt.disabled = false; return err("Ese artículo ya está en el planificador de este proveedor."); }
+      chk(await sb.schema("maestros").from("articulos").update({ stock_actual:out.stock, venta_media_semanal:out.avg, stock_seguridad:out.ss }).eq("id", artId));
+    } else {
+      const r = chk(await sb.schema("maestros").from("articulos").insert({ codigo_ax:code || null, descripcion:name, modelo:val("model") || null, estado: code ? "activo" : "muestra",
+        stock_actual:out.stock, venta_media_semanal:out.avg, stock_seguridad:out.ss }).select("id").single()); artId = r.data.id;
+    }
+    const orden = Math.max(0, ...prodsOf(sid).map(x => x.sort || 0)) + 1;
+    chk(await sb.schema("maestros").from("articulo_proveedor").upsert({ articulo_id:artId, proveedor_id:sup(sid).dbId, precio:out.price, moneda:cfg(sid).moneda, uds_pallet:out.pallet,
+      planificar:true, orden, precio_origen:"manual" }, { onConflict:"articulo_id,proveedor_id" }));
+    $("#dlgProd").close(); toast(code ? "Artículo añadido al planificador" : "Muestra añadida al planificador (sin referencia de AX)"); await cargar();
+  } catch(e){ console.error(e); err(msgErr(e)); }
+  bt.disabled = false;
+});
+
+/* ===== Entrada al módulo ===== */
+let lastHash = null;
+export function renderPlanificador(app, r){
+  if (r !== lastHash && (r === "planificador" || r === "proveedores" || r === "pagos") && S.loaded && !S.loading) cargar();
+  lastHash = r;
+  if (!S.loaded){ if (!S.loading) cargar(); app.append(el("div","loading","Cargando el planificador…")); return; }
+  if (r === "planificador"){ CUR.mon = "EUR"; return renderPlanMenu(app); }
+  if (r === "pagos"){ state.canWrite = puedeEditar("pagos"); renderPagos(app); return soloVer(app); }
+  state.canWrite = puedeEditar("planificador");
+  if (r === "proveedores"){ renderHome(app); return soloVer(app); }
+  const m = r.match(/^(prov-\d+)(-pedidos)?$/);
+  if (!m || !sup(m[1])){ renderHome(app); return; }
+  const sid = m[1]; CUR.mon = cfg(sid).moneda || "EUR";
+  const rr = { view: m[2] ? "ped" : "art", sid };
+  renderSupHeader(app, rr); if (rr.view === "ped") renderOrders(app, sid); else renderArticles(app, sid);
+  soloVer(app);
+}
+function soloVer(app){
+  if (state.canWrite) return; const b = app.querySelector(".brand"); if (!b) return;
+  const t = el("span","tag neutral","Solo visualización: puedes consultar y filtrar, pero no modificar datos"); t.style.cssText = "display:inline-block;margin-top:6px"; b.append(t);
+}

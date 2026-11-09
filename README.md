@@ -2,7 +2,7 @@
 
 Aplicación web interna de B10. Los datos viven en Supabase (proyecto B10) y el código en este repositorio.
 
-Versión 0.2.0: módulo **Compras** (análisis de facturas de proveedores) y **Gestión de usuarios** con contraseñas.
+Versión 0.3.0: **Compras** (análisis de facturas), **Planificador de compras** (revisión de artículos, pedidos lanzados con versiones y previsión de pagos de importaciones) y **Gestión de usuarios** con contraseñas.
 
 ## Estructura
 
@@ -13,6 +13,7 @@ js/config.js                Dirección de Supabase y clave pública  <-- revisar
 js/app.js                   Inicio de sesión, permisos y navegación
 js/util.js                  Utilidades comunes (formatos, desplegables, Excel)
 js/modulos/compras.js       Módulo Compras: análisis por proveedor
+js/modulos/planificador.js  Planificador de compras, pedidos lanzados y previsión de pagos
 js/modulos/usuarios.js      Gestión de usuarios y permisos (solo administradores)
 supabase/migrations/        Scripts SQL de la base de datos, en orden
 ```
@@ -22,8 +23,8 @@ supabase/migrations/        Scripts SQL de la base de datos, en orden
 Los scripts de `supabase/migrations` se ejecutan en orden en Supabase > SQL Editor. Los 01 a 04 ya están aplicados.
 Para esta versión hay que ejecutar **05_vistas_compras.sql**.
 
-Esquemas: `core` (usuarios, permisos, cargas, auditoría), `maestros` (proveedores, artículos), `ax` (datos importados de AX).
-Los tres deben estar en Settings > Data API > Exposed schemas (ya configurado).
+Esquemas: `core` (usuarios, permisos, cargas, auditoría), `maestros` (proveedores, artículos), `ax` (datos importados de AX),
+`compras` (previsión de venta y pedidos de importación). Los cuatro deben estar en Settings > Data API > Exposed schemas (ya configurado).
 
 ## Puesta en marcha
 

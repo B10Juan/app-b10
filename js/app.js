@@ -4,6 +4,7 @@ import { SUPABASE_URL, SUPABASE_KEY, APP_VERSION } from "./config.js";
 import { $, el, toast } from "./util.js";
 import { renderCompras } from "./modulos/compras.js";
 import { renderUsuarios } from "./modulos/usuarios.js";
+import { renderPlanificador } from "./modulos/planificador.js";
 
 export const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -19,7 +20,7 @@ export const puedeEditar = modulo => nivel(modulo) === "editar";
 // Módulos de la pantalla de inicio. Los que aún no están construidos aparecen como «Próximamente».
 const MODULOS = [
   { codigo:"compras",      ruta:"compras",  titulo:"Compras", texto:"Dashboard de facturas de proveedores: análisis por proveedor y artículo, unidades, precios medios e importes.", clase:"buy", listo:true },
-  { codigo:"planificador", ruta:null,       titulo:"Planificador de compras", texto:"Revisión de artículos por proveedor, pedidos lanzados y previsión de pagos de importaciones.", listo:false },
+  { codigo:"planificador", ruta:"planificador", titulo:"Planificador de compras", texto:"Revisión de artículos por proveedor, pedidos lanzados y previsión de pagos de importaciones.", clase:"", listo:true, tambien:"pagos" },
   { codigo:"plan_accion",  ruta:null,       titulo:"Plan de acción", texto:"Seguimiento del plan de acción del plan estratégico.", listo:false },
   { codigo:"crm",          ruta:null,       titulo:"CRM de clientes", texto:"Información de clientes para los delegados.", listo:false },
 ];
@@ -31,6 +32,7 @@ export function render(){ if (rq) return; rq = true; requestAnimationFrame(() =>
 function draw(){
   const app = $("#app");
   const sx = window.scrollX, sy = window.scrollY;
+  const gw0 = document.querySelector(".gridwrap"), gx = gw0 ? gw0.scrollLeft : 0, gy = gw0 ? gw0.scrollTop : 0;
   const ae = document.activeElement, aeKey = ae && ae.dataset ? ae.dataset.k : null;
   app.textContent = "";
   if (!ctx.ready){ app.append(el("div","loading","Cargando…")); return; }
@@ -40,11 +42,15 @@ function draw(){
   const md = (ctx.session.user.user_metadata || {});
   if (md.debe_cambiar_password) return drawPassword(app, true);
   if (r === "contrasena") return drawPassword(app, false);
+  const esPlan = r === "planificador" || r === "proveedores" || /^prov-\d+(-pedidos)?$/.test(r);
   if (r === "compras" && nivel("compras")) renderCompras(app);
+  else if (esPlan && (nivel("planificador") || (r === "planificador" && nivel("pagos")))) renderPlanificador(app, r);
+  else if (r === "pagos" && nivel("pagos")) renderPlanificador(app, r);
   else if (r === "usuarios" && isAdmin()) renderUsuarios(app);
   else drawInicio(app);
   if (aeKey){ const n = document.querySelector(`[data-k="${CSS.escape(aeKey)}"]`); if (n) n.focus(); }
   window.scrollTo(sx, sy);
+  const gw = document.querySelector(".gridwrap"); if (gw){ gw.scrollLeft = gx; gw.scrollTop = gy; }
 }
 
 export function cabecera(app, titulo, sub, volver, modulo){
@@ -66,11 +72,11 @@ function drawInicio(app){
   h.append(b, w); app.append(h);
   const g = el("div","modules pad"); let n = 0;
   for (const m of MODULOS){
-    if (m.listo && !nivel(m.codigo)) continue;
+    if (m.listo && !nivel(m.codigo) && !(m.tambien && nivel(m.tambien))) continue;
     if (!m.listo && !isAdmin()) continue;
     const a = el("a","mod-card"+(m.clase?" "+m.clase:"")+(m.listo?"":" soon")); if (m.listo) a.href = "#"+m.ruta;
     a.append(el("h2",null,m.titulo), el("p",null,m.texto));
-    const t = el("div","stats"); t.append(el("span","tag "+(m.listo?"neutral":"pend"), m.listo ? (nivel(m.codigo)==="editar"?"Edición":"Visualización") : "Próximamente")); a.append(t);
+    const t = el("div","stats"); t.append(el("span","tag "+(m.listo?"neutral":"pend"), m.listo ? ((nivel(m.codigo)||nivel(m.tambien||""))==="editar"?"Edición":"Visualización") : "Próximamente")); a.append(t);
     g.append(a); n++;
   }
   if (isAdmin()){ const a = el("a","mod-card usr"); a.href = "#usuarios"; a.append(el("h2",null,"Gestión de usuarios"), el("p",null,"Permisos de consulta o edición de cada persona en cada módulo.")); g.append(a); n++; }
