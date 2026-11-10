@@ -92,6 +92,7 @@ function calc(p,sid){
   const dem=new Array(n), entry=new Array(n).fill(0), tone=new Array(n).fill(""), tips=Array.from({length:n},()=>[]), ped=new Array(n).fill(0), carga=new Array(n).fill(0);
   const ov=p.overrides||{}, avg=p.avg||0, pal=p.pallet>=1?p.pallet:1;
   for(let i=0;i<n;i++){const k=key(W[i]); dem[i]=(k in ov)?ov[k]:avg;}
+  const man=new Array(n).fill(0), manInfo=new Array(n).fill(null); for(const [k,e] of Object.entries(p.manual||{})){const i=idx.get(k); if(i!=null){man[i]+=e.cantidad; manInfo[i]=e;}}
   const warnings=[], rank={"":0,conf:1,pnd:2,mod:3};
   for(const o of ordersOf(sid)){
     const q=effLines(o)[p.code]||0, base=(o.lines||{})[p.code]||0, changed=!isPend(o)&&o.mod&&q!==base;
@@ -105,11 +106,11 @@ function calc(p,sid){
     if(pal>1&&q%pal!==0) warnings.push(`${q} uds en ${isPend(o)?"entrada "+wLabel(d.entryW):o.ref} no es múltiplo de ${pal}`);
   }
   const net=new Array(n); let prev=p.stock||0;
-  for(let i=0;i<n;i++){prev=prev-dem[i]+entry[i]; net[i]=prev;}
+  for(let i=0;i<n;i++){prev=prev-dem[i]+entry[i]+man[i]; net[i]=prev;}
   const real=net.map(v=>Math.max(0,v)), res=net.map(v=>Math.max(0,-v)), over=net.map(v=>v-(p.ss||0));
   const fi=p.extinguir?-1:over.findIndex(v=>v<-1e-9); let sug=null;
   if(fi>=0){const launch=addW(W[fi],-(c.despacho+c.plazo)); const short=-over[fi]+avg*c.cobertura; sug={week:W[fi],launch,qty:Math.max(pal,Math.ceil(short/pal-1e-9)*pal),late:launch<today,rotura:net.some(v=>v<-1e-9)};}
-  return {W,dem,entry,tone,tips,ped,carga,net,real,res,over,sug,warnings,miss:missing(p)};
+  return {W,dem,entry,man,manInfo,tone,tips,ped,carga,net,real,res,over,sug,warnings,miss:missing(p)};
 }
 function supStats(sid){
   let brk=0,und=0,launch=0,inc=0;
@@ -201,7 +202,7 @@ function renderArticles(app,sid){
   sm.append(mk("r",st.brk,"con rotura"),mk("a",st.und,"bajo seguridad"),mk("p",st.pend,"entradas sin pedido"),mk("m",st.mods,"modificaciones por validar"),mk("",st.launch,"pedidos a lanzar en 4 semanas"));
   tb.append(q,l1,l2,nb,exportBtn(()=>exportArticles(sid)),sm); app.append(tb);
   const lg=el("div","legend pad");
-  for(const [v,t] of [["--arrive-soft","Entrada con pedido confirmado"],["--pend-soft","Entrada pendiente de confirmar pedido"],["--mod-soft","Modificación pendiente de validar por el proveedor"],["--promo-soft","Venta modificada a mano"],["--amber-soft","Bajo stock de seguridad"],["--red-soft","Rotura"]]){const s=el("span"); const i=el("i"); i.style.background=`var(${v})`; s.append(i,t); lg.append(s);}
+  for(const [v,t] of [["--arrive-soft","Entrada con pedido confirmado"],["--steel-soft","Otra entrada (devolución, otro proveedor…)"],["--pend-soft","Entrada pendiente de confirmar pedido"],["--mod-soft","Modificación pendiente de validar por el proveedor"],["--promo-soft","Venta modificada a mano"],["--amber-soft","Bajo stock de seguridad"],["--red-soft","Rotura"]]){const s=el("span"); const i=el("i"); i.style.background=`var(${v})`; s.append(i,t); lg.append(s);}
   app.append(lg);
   const wrap=el("div","gridwrap"), t=el("table","grid");
   const th=el("thead"), hr=el("tr"); hr.append(el("th","lab","Semana"));
@@ -209,7 +210,7 @@ function renderArticles(app,sid){
   const confByWeek=new Map(); for(const o of ordersOf(sid)) if(!isPend(o)){const k=key(od(o,sid).entryW); if(!confByWeek.has(k)) confByWeek.set(k,[]); confByWeek.get(k).push(o);}
   W.forEach((d,i)=>{const h=el("th",i===0?"now":""); h.append(wLabel(d)); h.append(el("small",null,dShort(d)));
     for(const o of (confByWeek.get(key(d))||[])){const dd=od(o,sid); const tg=el("a","otag"+(o.mod?" m":""),o.ref); tg.href=`#${sid}-pedidos`; tg.setAttribute("aria-label",`Pedido ${o.ref}`);
-      const tip=el("span","tip"); tip.append(el("b",null,o.ref+"\n"), `CRD: ${o.crd?dLong(parseKey(o.crd)):"sin fecha"}\nETD: ${o.etd?dLong(parseKey(o.etd)):"sin fecha (estimada "+dLong(dd.etd)+")"}\nETA: ${dLong(dd.eta)}\nTamaño: ${sizeLabel(o.tamano)||"sin indicar"}\nNaviera: ${o.naviera||"sin indicar"}\nImporte: ${fmtE2(total(o))}${o.mod?"\nModificación pendiente de validar":""}`);
+      const tip=el("span","tip"); tip.append(el("b",null,o.ref+"\n"), `CRD: ${o.crd?dLong(parseKey(o.crd)):"sin fecha"}\nETD: ${o.etd?dLong(parseKey(o.etd)):"sin fecha (estimada "+dLong(dd.etd)+")"}\nETA: ${dLong(dd.eta)}\nTamaño: ${sizeLabel(o.tamano)||"sin indicar"}\nNaviera: ${o.naviera||"sin indicar"}\nImporte: ${fmtE2(total(o))}${o.mod?"\nModificación pendiente de validar":""}${o.comentarios?"\n\nComentarios: "+o.comentarios:""}`);
       tg.append(tip); tg.addEventListener("click",()=>{state.expanded.add(o._id); state.ordFilter={sid,peds:[o._id],refs:[]}; state.dd=null;}); h.append(tg);}
     const po=pendByWeek.get(key(d)); if(po&&state.canWrite){const b=el("button","asg","Crear pedido"); b.title="Crear un pedido con todas las entradas pendientes de esta semana"; b.addEventListener("click",()=>openAsg(sid,po)); h.append(b);} hr.append(h);});
   th.append(hr); t.append(th);
@@ -222,7 +223,7 @@ function renderArticles(app,sid){
   if(!vis.length){const b=el("tbody"),tr=el("tr"),td=el("td","empty"); td.colSpan=W.length+1; td.style.textAlign="left"; td.textContent=prodsOf(sid).length?"Ningún artículo coincide con el filtro.":"Este proveedor aún no tiene artículos en el planificador. Añádelos con «Nuevo artículo»."; tr.append(td); b.append(tr); t.append(b);}
   wrap.append(t); app.append(wrap);
 }
-function rowsFor(c){return [["dem","Venta prevista"],["entry","Entrada en almacén",null,`ETA + ${c.despacho} sem`],["ped","Pedido a lanzar","x"],["carga","Carga en China (ETD)","x"],["real","Stock real"],["res","Reservas pendientes"],["over","Sobre stock de seguridad"]];}
+function rowsFor(c){return [["dem","Venta prevista"],["entry","Entrada en almacén",null,`ETA + ${c.despacho} sem`],["man","Otras entradas",null,"devoluciones, otros proveedores"],["ped","Pedido a lanzar","x"],["carga","Carga en China (ETD)","x"],["real","Stock real"],["res","Reservas pendientes"],["over","Sobre stock de seguridad"]];}
 function productBody(p,r,W,sid,c){
   const tb=el("tbody",p.extinguir?"extb":""), collapsed=state.collapsed.has(p.code), compact=state.filters.compact;
   const h=el("tr","ph"), hc=el("td"); hc.colSpan=W.length+1; const inn=el("div","phin");
@@ -260,6 +261,9 @@ function productBody(p,r,W,sid,c){
         }
         td.append(inp);
       }
+      else if(k==="man"){td.classList.remove("v"); const e=r.manInfo[i]; const b=el("button","mcell"+(e?" has":""),e?fmt(e.cantidad)||String(e.cantidad):"");
+        b.disabled=!state.canWrite&&!e; b.dataset.k=`man|${p.code}|${ks}`; b.title=e?`${MOTIVOS[e.motivo]||"Entrada"}: ${e.cantidad} uds${e.comentario?"\n"+e.comentario:""}`:"Añadir una entrada (devolución, compra a otro proveedor…)";
+        b.setAttribute("aria-label",`Otras entradas ${p.name} ${wLabel(W[i])}`); b.addEventListener("click",()=>openMan(p,W[i],e,sid)); td.append(b);}
       else if(k==="ped"){td.textContent=fmt(r.ped[i]); if(r.ped[i]) td.classList.add("ord");}
       else if(k==="carga"){td.textContent=fmt(r.carga[i]); td.classList.add("carga");}
       else if(k==="real"){td.textContent=fmt(r.real[i])||"0"; if(r.real[i]<=1e-9) td.classList.add("zero");}
@@ -282,7 +286,7 @@ function setDemand(p,k,raw){
 function setEntry(sid,p,w,inp){
   const c=cfg(sid), raw=inp.value, q=raw.trim()===""?0:num(raw), pal=p.pallet>=1?p.pallet:1;
   if(isNaN(q)||q<0||!Number.isInteger(q)){toast("Introduce un número entero de unidades."); render(); return;}
-  if(q%pal!==0){const lo=Math.floor(q/pal)*pal; toast(`${q} no es múltiplo de ${pal} uds por pallet. Prueba con ${lo||pal} o ${lo+pal}.`); render(); return;}
+  if(q%pal!==0){const lo=Math.floor(q/pal)*pal; toast(`Aviso: ${q} no es múltiplo de ${pal} uds por pallet (lo habitual sería ${lo?lo+" o "+(lo+pal):pal}). Se guarda igualmente.`);}
   const wk=key(w);
   const confs=ordersOf(sid).filter(o=>!isPend(o)&&key(od(o,sid).entryW)===wk);
   const confO=confs.find(o=>effLines(o)[p.code]||(o.lines||{})[p.code])||confs[0];
@@ -424,7 +428,7 @@ function linesTable(o,editable){
       if(hasMod&&q!==bq){qi.classList.add("modv"); c2.append(el("span","was",`antes ${bq}`));}
       qi.addEventListener("change",()=>{const v=qi.value.trim()===""?0:num(qi.value); const pal=p.pallet>=1?p.pallet:1;
         if(isNaN(v)||v<0||!Number.isInteger(v)){toast("Introduce un número entero de unidades."); render(); return;}
-        if(v%pal){toast(`${v} no es múltiplo de ${pal} uds por pallet.`); render(); return;}
+        if(v%pal){toast(`Aviso: ${v} no es múltiplo de ${pal} uds por pallet. Se guarda igualmente.`);}
         const n=changeLines(o,(Lx,Px,oo)=>setLine(Lx,Px,oo,code,v)); saveOrder(n); afterMod(n,o.ref);});
       c2.prepend(qi);
       const pi=el("input"); pi.value=up.toLocaleString("es-ES",{minimumFractionDigits:2,maximumFractionDigits:4}); pi.inputMode="decimal"; pi.dataset.k=`price|${o._id}|${code}`; pi.setAttribute("aria-label",`Precio unitario de ${p.name}`); pi.disabled=!q;
@@ -469,13 +473,17 @@ function orderCard(o,sid,c){
   if(nh){const hb=el("button","btn",hopen?"Ocultar historial":`Historial (${nh} ${nh===1?"versión anterior":"versiones anteriores"})`); hb.addEventListener("click",()=>{hopen?state.histOpen.delete(o._id):state.histOpen.add(o._id); render();}); m.append(hb);}
   const del=el("button","btn danger","Eliminar pedido"); del.disabled=ro; del.addEventListener("click",()=>{if(confirm(`¿Eliminar el pedido ${o.ref} y todas sus líneas?`)) delOrder(o);}); m.append(del);
   cd.append(m);
+  const cw=el("div","comments"); const cl=el("label",null,"Comentarios"); const ta=el("textarea"); ta.rows=2; ta.value=o.comentarios||""; ta.disabled=ro; ta.dataset.k="com|"+o._id;
+  ta.placeholder=ro?"Sin comentarios":"Notas del pedido: incidencias, acuerdos con el proveedor, documentación…"; ta.id="com-"+o._id; cl.htmlFor=ta.id;
+  ta.addEventListener("change",()=>{const v=ta.value.trim(); if(v!==(o.comentarios||"")){saveOrder(Object.assign(clone(o),{comentarios:v})); toast("Comentario guardado");}});
+  cw.append(cl,ta); cd.append(cw);
   if(open){
     cd.append(linesTable(o,true));
     if(!ro){const al=el("div","addline"); const s=el("select"); s.setAttribute("aria-label","Artículo a añadir"); const o0=el("option",null,"Añadir artículo…"); o0.value=""; s.append(o0);
       for(const p of prodsOf(sid)) if(!effLines(o)[p.code]&&!p.extinguir){const op=el("option",null,`${p.name} (${dispCode(p)})`); op.value=p.code; s.append(op);}
       const qi=el("input"); qi.placeholder="Uds"; qi.inputMode="numeric"; qi.setAttribute("aria-label","Unidades");
       const bt=el("button","btn","Añadir"); bt.addEventListener("click",()=>{const code=s.value, v=num(qi.value), p=prod(code); if(!code){toast("Elige un artículo"); return;}
-        if(isNaN(v)||v<=0||!Number.isInteger(v)){toast("Introduce un número entero de unidades."); return;} const pal=p.pallet>=1?p.pallet:1; if(v%pal){toast(`${v} no es múltiplo de ${pal} uds por pallet.`); return;}
+        if(isNaN(v)||v<=0||!Number.isInteger(v)){toast("Introduce un número entero de unidades."); return;} const pal=p.pallet>=1?p.pallet:1; if(v%pal){toast(`Aviso: ${v} no es múltiplo de ${pal} uds por pallet. Se guarda igualmente.`);}
         const n=changeLines(o,(L,P,oo)=>setLine(L,P,oo,code,v)); saveOrder(n); afterMod(n,o.ref);});
       al.append(s,qi,bt); cd.append(al);}
   }
@@ -594,8 +602,8 @@ function exportArticles(sid){
   for(const {p,r} of vis){
     for(const [k,label,opt] of rowsFor(c)){
       if(state.filters.compact&&opt) continue;
-      const arr={dem:r.dem,entry:r.entry,ped:r.ped,carga:r.carga,real:r.real,res:r.res,over:r.over}[k].map(v=>Math.round(v*100)/100);
-      rows.push([dispCode(p),p.name,label+(k==="entry"?` (ETA + ${c.despacho} sem)`:""),...arr.map(v=>(["entry","ped","carga","res"].includes(k)&&!v)?"":v)]);
+      const arr={dem:r.dem,entry:r.entry,man:r.man,ped:r.ped,carga:r.carga,real:r.real,res:r.res,over:r.over}[k].map(v=>Math.round(v*100)/100);
+      rows.push([dispCode(p),p.name,label+(k==="entry"?` (ETA + ${c.despacho} sem)`:""),...arr.map(v=>(["entry","man","ped","carga","res"].includes(k)&&!v)?"":v)]);
       if(k==="entry") rows.push([dispCode(p),p.name,"Situación de la entrada",...r.tone.map(t=>TONE[t]||"")]);
     }
   }
@@ -610,8 +618,8 @@ function exportArticles(sid){
 }
 function exportOrders(sid){
   const s=sup(sid), wb=XLSX.utils.book_new(), {pend,done,live}=filteredGroups(sid), shown=[...live,...(state.showDone||ordF(sid).peds.length?done:[])];
-  const P=[["Nº pedido","Estado","CRD","ETD","ETA","Entrada en almacén","Semana entrada","Naviera","Tamaño","Uds","Importe total","Pago previsto","Modificación pendiente","Importe versión confirmada"]];
-  for(const o of shown){const d=od(o,sid); P.push([o.ref,orderState(o,sid)[0],o.crd?xDate(parseKey(o.crd)):"",o.etd?xDate(parseKey(o.etd)):"",xDate(d.eta),xDate(d.entryW),wLabel(d.entryW),o.naviera||"",sizeLabel(o.tamano),Object.values(effLines(o)).reduce((a,b)=>a+b,0),Math.round(total(o)*100)/100,xDate(d.pago),o.mod?"Sí":"No",Math.round(total(o,true)*100)/100]);}
+  const P=[["Nº pedido","Estado","CRD","ETD","ETA","Entrada en almacén","Semana entrada","Naviera","Tamaño","Uds","Importe total","Pago previsto","Modificación pendiente","Comentarios","Importe versión confirmada"]];
+  for(const o of shown){const d=od(o,sid); P.push([o.ref,orderState(o,sid)[0],o.crd?xDate(parseKey(o.crd)):"",o.etd?xDate(parseKey(o.etd)):"",xDate(d.eta),xDate(d.entryW),wLabel(d.entryW),o.naviera||"",sizeLabel(o.tamano),Object.values(effLines(o)).reduce((a,b)=>a+b,0),Math.round(total(o)*100)/100,xDate(d.pago),o.mod?"Sí":"No",o.comentarios||"",Math.round(total(o,true)*100)/100]);}
   XLSX.utils.book_append_sheet(wb,sheet(P,[16,22,12,12,12,16,14,14,18,8,14,14,20,22]),"Pedidos");
   const L=[["Nº pedido","Referencia","Descripción","Cantidad","Precio unitario","Importe línea","Situación","Cantidad confirmada","Precio confirmado"]];
   for(const o of shown){const E=effLines(o), B=o.lines||{}; for(const code of new Set([...Object.keys(E),...Object.keys(B)])){const q=E[code]||0, bq=B[code]||0, up=lp(o,code), bp=lp(o,code,true); const ch=o.mod&&(q!==bq||Math.abs(up-bp)>1e-9);
@@ -634,14 +642,16 @@ const chk = r => { if (r && r.error) throw r.error; return r; };
 async function cargar(){
   S.loading = true;
   try{
-    const [pv, ap, pr, pe, st] = await Promise.all([
+    const [pv, ap, pr, pe, st, em] = await Promise.all([
       sb.schema("maestros").from("proveedores").select("id,codigo_ax,nombre,nombre_corto,alias,moneda,grupo_compra,es_importacion,contacto,email,plazo_semanas,transito_semanas,despacho_semanas,dias_pago_antes_embarque,cobertura_semanas"),
       sb.schema("maestros").from("articulo_proveedor").select("id,articulo_id,proveedor_id,precio,moneda,uds_pallet,orden,clave_stock,a_extinguir,venta_media_semanal,stock_seguridad,stock_manual,descripcion,modelo,articulos(id,codigo_ax,descripcion,modelo,estado)").eq("planificar", true).range(0, 4999),
       sb.schema("compras").from("prevision_venta").select("articulo_proveedor_id,semana,unidades").gte("semana", key(today)).range(0, 9999),
       sb.schema("compras").from("pedidos").select("*").order("eta"),
       sb.schema("ax").from("v_stock_actual").select("clave,disponible_real,fecha_stock,fichero").range(0, 9999),
+      sb.schema("compras").from("entradas_manuales").select("id,articulo_proveedor_id,semana,cantidad,motivo,comentario").gte("semana", key(addW(today,-1))).range(0, 9999),
     ]);
-    for (const r of [pv, ap, pr, pe, st]) chk(r);
+    for (const r of [pv, ap, pr, pe, st, em]) chk(r);
+    const man = {}; for (const e of em.data){ (man[e.articulo_proveedor_id] = man[e.articulo_proveedor_id] || {})[e.semana] = { id:e.id, cantidad:+e.cantidad, motivo:e.motivo, comentario:e.comentario || "" }; }
     const ov = {}; for (const r of pr.data){ (ov[r.articulo_proveedor_id] = ov[r.articulo_proveedor_id] || {})[r.semana] = +r.unidades; }
     const stock = new Map(st.data.map(x => [x.clave, x]));
     S.stockInfo = st.data[0] ? { fecha: st.data[0].fecha_stock, fichero: st.data[0].fichero, n: st.data.length } : null;
@@ -654,7 +664,7 @@ async function cargar(){
       _id:"ap-"+a.id, apId:a.id, artId:a.articulos.id, code:String(a.id), codigo_ax:a.articulos.codigo_ax, estado:a.articulos.estado, clave:a.clave_stock || "",
       name:a.descripcion || a.articulos.descripcion, model:a.modelo || a.articulos.modelo || "", avg:num0(a.venta_media_semanal), ss:num0(a.stock_seguridad),
       stockAX: !!sx, stock: sx ? +sx.disponible_real : num0(a.stock_manual), stockManual:num0(a.stock_manual), stockFecha: sx ? sx.fecha_stock : null, stockFichero: sx ? sx.fichero : null,
-      extinguir: !!a.a_extinguir, pallet:a.uds_pallet, price:num0(a.precio), supplier:"prov-"+a.proveedor_id, sort:a.orden ?? 999, overrides: ov[a.id] || {} }; });
+      extinguir: !!a.a_extinguir, pallet:a.uds_pallet, price:num0(a.precio), supplier:"prov-"+a.proveedor_id, sort:a.orden ?? 999, overrides: ov[a.id] || {}, manual: man[a.id] || {} }; });
     state.orders = pe.data.map(fromRow);
     state.loaded.s = true; S.loaded = true;
   } catch(e){ console.error(e); toast("No se han podido cargar los datos del planificador."); S.loaded = true; }
@@ -663,11 +673,11 @@ async function cargar(){
 const num0 = v => v == null ? null : +v;
 function fromRow(r){
   return { _id:"ped-"+r.id, dbId:r.id, supplier:"prov-"+r.proveedor_id, status:r.estado, ref:r.referencia || "", crd:r.crd || "", etd:r.etd || "", eta:r.eta,
-    naviera:r.naviera || "", tamano:r.tamano || "", lines:r.lineas || {}, prices:r.precios || {}, mod:r.modificacion || undefined, history:r.historial || [], pagado:r.pagado_en || undefined };
+    naviera:r.naviera || "", tamano:r.tamano || "", comentarios:r.comentarios || "", lines:r.lineas || {}, prices:r.precios || {}, mod:r.modificacion || undefined, history:r.historial || [], pagado:r.pagado_en || undefined };
 }
 function toRow(o){
   return { proveedor_id:sup(o.supplier).dbId, estado:o.status, referencia:o.ref || null, crd:o.crd || null, etd:o.etd || null, eta:o.eta,
-    naviera:o.naviera || null, tamano:o.tamano || null, lineas:o.lines || {}, precios:o.prices || {}, modificacion:o.mod || null, historial:o.history || [], pagado_en:o.pagado || null };
+    naviera:o.naviera || null, tamano:o.tamano || null, comentarios:o.comentarios || null, lineas:o.lines || {}, precios:o.prices || {}, modificacion:o.mod || null, historial:o.history || [], pagado_en:o.pagado || null };
 }
 const queues = {};
 function enqueue(k, fn){ const p = (queues[k] || Promise.resolve()).then(fn).then(() => true).catch(e => { console.error(e); toast(msgErr(e)); cargar(); return false; }); queues[k] = p; return p; }
@@ -708,6 +718,43 @@ function delOrder(o){
   state.orders = state.orders.filter(x => x._id !== o._id); render();
   return enqueue(o._id, async () => { const id = o.dbId || S.idMap[o._id]; if (id) chk(await sb.schema("compras").from("pedidos").delete().eq("id", id)); });
 }
+
+/* ===== Entradas manuales de almacén ===== */
+const MOTIVOS = { devolucion:"Devolución de cliente", otro_proveedor:"Compra a otro proveedor", ajuste:"Ajuste de stock", otro:"Otra entrada" };
+let manCtx = null;
+function openMan(p, w, e, sid){
+  manCtx = { p, w, e, sid }; const ro = !state.canWrite;
+  $("#manTitle").textContent = `${p.name}: otra entrada en ${wLabel(w)}`;
+  $("#manSub").textContent = `Entra en almacén la semana del ${dLong(w)} y suma al stock desde esa semana.${p.pallet>1?` Pallet de ${p.pallet} uds (no es obligatorio respetarlo).`:""}`;
+  const ms = $("#manMotivo"); ms.textContent = ""; for (const [v,l] of Object.entries(MOTIVOS)){ const o = el("option",null,l); o.value = v; ms.append(o); }
+  ms.value = e ? e.motivo : "devolucion"; $("#manQty").value = e ? e.cantidad : ""; $("#manCom").value = e ? e.comentario : "";
+  for (const id of ["manMotivo","manQty","manCom"]) $("#"+id).disabled = ro;
+  $("#manSave").hidden = ro; $("#manDel").hidden = ro || !e; $("#manErr").textContent = "";
+  $("#dlgMan").showModal(); setTimeout(() => $("#manQty").focus(), 30);
+}
+$("#manCancel").addEventListener("click", () => $("#dlgMan").close());
+async function guardarMan(borrar){
+  const { p, w, e } = manCtx, k = key(w);
+  const np = clone(p); np.manual = np.manual || {};
+  if (borrar){ delete np.manual[k]; }
+  else {
+    const q = num($("#manQty").value);
+    if (isNaN(q) || q === 0) { $("#manErr").textContent = "Indica la cantidad (puede ser negativa para un ajuste)."; return; }
+    const com = $("#manCom").value.trim(), mot = $("#manMotivo").value;
+    if (mot !== "devolucion" && !com) { $("#manErr").textContent = "Añade un comentario: de qué proveedor viene o por qué se hace el ajuste."; return; }
+    if (p.pallet > 1 && q % p.pallet) toast(`Aviso: ${q} no es múltiplo de ${p.pallet} uds por pallet. Se guarda igualmente.`);
+    np.manual[k] = { id: e && e.id, cantidad:q, motivo:mot, comentario:com };
+  }
+  $("#dlgMan").close();
+  const i = state.products.findIndex(x => x._id === p._id); if (i >= 0) state.products[i] = np; render();
+  await enqueue("man-"+p.apId+"-"+k, async () => {
+    if (borrar) chk(await sb.schema("compras").from("entradas_manuales").delete().eq("articulo_proveedor_id", p.apId).eq("semana", k));
+    else { const m = np.manual[k]; chk(await sb.schema("compras").from("entradas_manuales").upsert({ articulo_proveedor_id:p.apId, semana:k, cantidad:m.cantidad, motivo:m.motivo, comentario:m.comentario || null }, { onConflict:"articulo_proveedor_id,semana" })); }
+  });
+  toast(borrar ? "Entrada eliminada" : "Entrada guardada");
+}
+$("#fMan").addEventListener("submit", ev => { ev.preventDefault(); guardarMan(false); });
+$("#manDel").addEventListener("click", () => { if (confirm("¿Eliminar esta entrada?")) guardarMan(true); });
 
 /* ===== Stock de AX: fecha y carga del fichero ===== */
 function fechaCorta(f){ if (!f) return ""; const d = new Date(f); return d.toLocaleDateString("es-ES",{day:"2-digit",month:"2-digit"}); }

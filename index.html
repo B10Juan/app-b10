@@ -63,6 +63,19 @@
   </form>
 </dialog>
 
+<dialog id="dlgMan">
+  <form method="dialog" id="fMan">
+    <h2 id="manTitle"></h2>
+    <p class="sub" id="manSub"></p>
+    <div class="f2">
+      <div class="f"><label for="manQty">Cantidad</label><input id="manQty" inputmode="decimal" autocomplete="off"></div>
+      <div class="f"><label for="manMotivo">Motivo</label><select id="manMotivo"></select></div>
+    </div>
+    <div class="f"><label for="manCom">Comentario</label><textarea id="manCom" rows="3" placeholder="Ej.: devolución del cliente X, compra puntual a Y, regularización de inventario…" style="border:1px solid var(--line-strong);border-radius:6px;padding:7px 10px;background:var(--surface-2);font:inherit;color:inherit"></textarea></div>
+    <span class="err" id="manErr"></span>
+    <div class="actions"><button type="button" class="btn danger" id="manDel" style="margin-right:auto">Eliminar</button><button type="button" class="btn" id="manCancel">Cancelar</button><button class="btn primary" id="manSave">Guardar</button></div>
+  </form>
+</dialog>
 <datalist id="navieras"></datalist>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <script type="module" src="js/app.js"></script>
