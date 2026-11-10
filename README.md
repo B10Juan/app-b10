@@ -2,7 +2,7 @@
 
 Aplicación web interna de B10. Los datos viven en Supabase (proyecto B10) y el código en este repositorio.
 
-Versión 0.5.0: **Compras** (análisis de facturas por proveedor y por referencia), **Planificador de compras** (revisión de artículos, pedidos lanzados con versiones y previsión de pagos de importaciones) y **Gestión de usuarios** con contraseñas.
+Versión 0.7.0: **Compras** (análisis de facturas por proveedor y por referencia), **Planificador de compras** (revisión de artículos, pedidos lanzados con versiones y previsión de pagos de importaciones) y **Gestión de usuarios** con contraseñas.
 
 ## Estructura
 
@@ -51,6 +51,13 @@ Cada cambio que se suba a GitHub se publica solo en Netlify en un minuto.
 - Cada usuario puede cambiar su contraseña desde el botón «Contraseña».
 - Permisos por módulo: Sin acceso, Visualización (ver, filtrar y exportar) o Edición. Los aplica la base de datos.
 - Scripts relacionados: supabase/migrations/06_usuarios_con_contrasena.sql
+
+## Plan de Acción del P.E.
+
+Carpeta `plan/`: app de seguimiento del plan estratégico (planes › líneas estratégicas › acciones clave ›
+actividades › tareas), con vistas de lista, calendario, cronograma y responsables. Se abre dentro de APP B10
+(ruta `#plan`) y comparte su inicio de sesión. Datos en el esquema `plan` de Supabase (migración 14).
+Permisos: Gestión de usuarios > Plan de Acción del P.E. (Visualización = solo consulta; Edición = crea y modifica).
 
 ## Stock de AX
 

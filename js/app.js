@@ -23,7 +23,7 @@ export const puedeEditar = modulo => nivel(modulo) === "editar";
 const MODULOS = [
   { codigo:"compras",      ruta:"compras",  titulo:"Compras", texto:"Dashboard de facturas de proveedores: análisis por proveedor y artículo, unidades, precios medios e importes.", clase:"buy", listo:true },
   { codigo:"planificador", ruta:"planificador", titulo:"Planificador de compras", texto:"Revisión de artículos por proveedor, pedidos lanzados y previsión de pagos de importaciones.", clase:"", listo:true, tambien:"pagos" },
-  { codigo:"plan_accion",  ruta:null,       titulo:"Plan de acción", texto:"Seguimiento del plan de acción del plan estratégico.", listo:false },
+  { codigo:"plan_accion",  ruta:"plan",     titulo:"Plan de Acción del P.E.", texto:"Seguimiento del plan estratégico: líneas estratégicas, acciones clave, actividades y tareas, con responsables, estados, calendario y cronograma.", listo:true },
   { codigo:"crm",          ruta:null,       titulo:"CRM de clientes", texto:"Información de clientes para los delegados.", listo:false },
 ];
 
@@ -32,6 +32,8 @@ let rq = false;
 export function render(){ if (rq) return; rq = true; requestAnimationFrame(() => { rq = false; draw(); }); }
 
 function draw(){
+  // El plan va en un iframe: si ya está abierto no se vuelve a pintar (se recargaría)
+  if (ctx.ready && ctx.session && ctx.me && route() === "plan" && planFrame && planFrame.isConnected && !((ctx.session.user.user_metadata || {}).debe_cambiar_password)) return;
   let app = $("#app"); app.classList.remove("con-lateral");
   const sx = window.scrollX, sy = window.scrollY;
   const gw0 = document.querySelector(".gridwrap"), gx = gw0 ? gw0.scrollLeft : 0, gy = gw0 ? gw0.scrollTop : 0;
@@ -45,7 +47,7 @@ function draw(){
   if (md.debe_cambiar_password) return drawPassword(app, true);
   if (r === "contrasena") return drawPassword(app, false);
   const esPlan = r === "planificador" || r === "proveedores" || /^prov-\d+(-pedidos)?$/.test(r);
-  const esApp = ["compras","compras-ref","proveedores","pagos","usuarios"].includes(r) || /^prov-\d+/.test(r);
+  const esApp = ["compras","compras-ref","proveedores","pagos","usuarios","plan"].includes(r) || /^prov-\d+/.test(r);
   app.classList.toggle("con-lateral", esApp);
   if (esApp){ app.append(lateral(r)); const m = el("main","contenido"); app.append(m); app = m; }
   if (r === "compras" && nivel("compras")) renderCompras(app);
@@ -53,6 +55,7 @@ function draw(){
   else if (esPlan && (nivel("planificador") || (r === "planificador" && nivel("pagos")))) renderPlanificador(app, r);
   else if (r === "pagos" && nivel("pagos")) renderPlanificador(app, r);
   else if (r === "usuarios" && isAdmin()) renderUsuarios(app);
+  else if (r === "plan" && nivel("plan_accion")) drawPlan(app);
   else drawInicio(app);
   if (aeKey){ const n = document.querySelector(`[data-k="${CSS.escape(aeKey)}"]`); if (n) n.focus(); }
   window.scrollTo(sx, sy);
@@ -101,6 +104,7 @@ function lateral(r){
   if (nivel("compras")) item("#compras", "compras", "Compras", r.startsWith("compras"));
   if (nivel("planificador")) item("#proveedores", "planificador", "Planificador", r === "proveedores" || /^prov-/.test(r));
   if (nivel("pagos")) item("#pagos", "pagos", "Pagos", r === "pagos");
+  if (nivel("plan_accion")) item("#plan", "plan", "Plan P.E.", r === "plan");
   if (isAdmin()) item("#usuarios", "usuarios", "Usuarios", r === "usuarios");
   a.append(nav);
   const pie = el("div","lat-pie");
@@ -110,6 +114,14 @@ function lateral(r){
   const out = el("button","lat-item"); out.type = "button"; out.title = "Salir"; out.append(icono("salir"), el("span",null,"Salir")); out.addEventListener("click", async () => { await sb.auth.signOut(); });
   pie.append(pw, out); a.append(pie);
   return a;
+}
+
+// Plan de Acción del P.E.: la app de seguimiento va incrustada y comparte la sesión de APP B10
+let planFrame = null;
+function drawPlan(app){
+  document.title = "Plan de Acción del P.E.";
+  if (!planFrame){ planFrame = el("iframe","plan-frame"); planFrame.title = "Plan de Acción del P.E."; planFrame.src = "plan/index.html?v=" + APP_VERSION; }
+  app.append(planFrame);
 }
 
 function drawLogin(app){
