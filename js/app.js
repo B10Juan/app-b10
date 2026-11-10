@@ -2,7 +2,7 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.56.0/+esm";
 import { SUPABASE_URL, SUPABASE_KEY, APP_VERSION } from "./config.js";
 import { $, el, toast } from "./util.js";
-import { renderCompras } from "./modulos/compras.js";
+import { renderCompras, renderComprasRef } from "./modulos/compras.js";
 import { renderUsuarios } from "./modulos/usuarios.js";
 import { renderPlanificador } from "./modulos/planificador.js";
 
@@ -44,6 +44,7 @@ function draw(){
   if (r === "contrasena") return drawPassword(app, false);
   const esPlan = r === "planificador" || r === "proveedores" || /^prov-\d+(-pedidos)?$/.test(r);
   if (r === "compras" && nivel("compras")) renderCompras(app);
+  else if (r === "compras-ref" && nivel("compras")) renderComprasRef(app);
   else if (esPlan && (nivel("planificador") || (r === "planificador" && nivel("pagos")))) renderPlanificador(app, r);
   else if (r === "pagos" && nivel("pagos")) renderPlanificador(app, r);
   else if (r === "usuarios" && isAdmin()) renderUsuarios(app);

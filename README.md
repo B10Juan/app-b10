@@ -2,7 +2,7 @@
 
 Aplicación web interna de B10. Los datos viven en Supabase (proyecto B10) y el código en este repositorio.
 
-Versión 0.4.0: **Compras** (análisis de facturas), **Planificador de compras** (revisión de artículos, pedidos lanzados con versiones y previsión de pagos de importaciones) y **Gestión de usuarios** con contraseñas.
+Versión 0.5.0: **Compras** (análisis de facturas por proveedor y por referencia), **Planificador de compras** (revisión de artículos, pedidos lanzados con versiones y previsión de pagos de importaciones) y **Gestión de usuarios** con contraseñas.
 
 ## Estructura
 
