@@ -3,7 +3,6 @@
 // de APP B10 y las reglas RLS del esquema «plan». NUNCA pongas aquí la clave secreta.
 window.APP_CONFIG = {
   SUPABASE_URL: "https://ckezbhdnaqeesxpepiqp.supabase.co",
-  SUPABASE_ANON_KEY: "sb_publishable_
-sb_publishable_3p-fi3bVGBifUCetGdQIHg_iyTZPf2o",
+  SUPABASE_ANON_KEY: "sb_publishable_3p-fi3bVGBifUCetGdQIHg_iyTZPf2o",
   USER_DOMAIN: "b10bath.com"
 };
