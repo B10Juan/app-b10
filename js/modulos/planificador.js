@@ -64,7 +64,7 @@ const DEF={plazo:12,transito:5,despacho:1,pagoDias:15,horizonte:52,cobertura:8};
 function sup(id){return state.suppliers.find(s=>s._id===id);}
 function cfg(sid){return Object.assign({},DEF,sup(sid)||{});}
 function weeks(sid){const n=cfg(sid).horizonte||52; const a=[]; for(let i=0;i<n;i++) a.push(addW(today,i)); return a;}
-const prodsOf=sid=>state.products.filter(p=>p.supplier===sid).sort((a,b)=>(a.sort||0)-(b.sort||0));
+const prodsOf=sid=>state.products.filter(p=>p.supplier===sid).sort((a,b)=>(!!a.extinguir-!!b.extinguir)||(a.sort||0)-(b.sort||0));
 const prod=code=>state.products.find(p=>p.code===code);
 const ordersOf=sid=>state.orders.filter(o=>o.supplier===sid);
 const isPend=o=>o.status==="pendiente";
@@ -107,15 +107,15 @@ function calc(p,sid){
   const net=new Array(n); let prev=p.stock||0;
   for(let i=0;i<n;i++){prev=prev-dem[i]+entry[i]; net[i]=prev;}
   const real=net.map(v=>Math.max(0,v)), res=net.map(v=>Math.max(0,-v)), over=net.map(v=>v-(p.ss||0));
-  const fi=over.findIndex(v=>v<-1e-9); let sug=null;
+  const fi=p.extinguir?-1:over.findIndex(v=>v<-1e-9); let sug=null;
   if(fi>=0){const launch=addW(W[fi],-(c.despacho+c.plazo)); const short=-over[fi]+avg*c.cobertura; sug={week:W[fi],launch,qty:Math.max(pal,Math.ceil(short/pal-1e-9)*pal),late:launch<today,rotura:net.some(v=>v<-1e-9)};}
   return {W,dem,entry,tone,tips,ped,carga,net,real,res,over,sug,warnings,miss:missing(p)};
 }
 function supStats(sid){
   let brk=0,und=0,launch=0,inc=0;
-  for(const p of prodsOf(sid)){const r=calc(p,sid); if(r.net.some(v=>v<-1e-9)) brk++; else if(r.over.some(v=>v<-1e-9)) und++; if(r.sug&&r.sug.launch<addW(today,4)) launch++; if(r.miss.length) inc++;}
+  for(const p of prodsOf(sid).filter(x=>!x.extinguir)){const r=calc(p,sid); if(r.net.some(v=>v<-1e-9)) brk++; else if(r.over.some(v=>v<-1e-9)) und++; if(r.sug&&r.sug.launch<addW(today,4)) launch++; if(r.miss.length) inc++;}
   const os=ordersOf(sid);
-  return {brk,und,launch,inc,n:prodsOf(sid).length,
+  return {brk,und,launch,inc,n:prodsOf(sid).length,ext:prodsOf(sid).filter(x=>x.extinguir).length,
     live:os.filter(o=>!isPend(o)&&orderState(o,sid)[0]!=="En almacén").length,
     pend:os.filter(o=>isPend(o)&&Object.keys(o.lines||{}).length).length,
     mods:os.filter(o=>!isPend(o)&&o.mod).length};
@@ -138,7 +138,7 @@ function afterMod(n,ref){if(!isPend(n)) toast(n.mod?`${ref}: modificación pendi
 function exportBtn(fn){const b=el("button","btn","Exportar a Excel"); b.addEventListener("click",fn); return b;}
 function renderHome(app){
   document.title="Planificador de compras de importación";
-  const h=el("header","top pad"); const b=el("div","brand"); const bk=el("a","back","‹ Planificador de compras"); bk.href="#planificador"; b.append(bk, el("h1",null,"Proveedores"), el("p",null,"Elige el proveedor que quieres revisar.")); h.append(b, exportBtn(exportHome)); app.append(h);
+  const h=el("header","top pad"); const b=el("div","brand"); const bk=el("a","back","‹ Planificador de compras"); bk.href="#planificador"; b.append(bk, el("h1",null,"Proveedores"), el("p",null,"Elige el proveedor que quieres revisar.")); h.append(b, stockBox(), exportBtn(exportHome)); app.append(h);
   const g=el("div","suppliers pad");
   const ss=[...state.suppliers].sort((a,b)=>(prodsOf(b._id).length>0)-(prodsOf(a._id).length>0)||(a.sort||0)-(b.sort||0));
   if(!ss.length&&state.loaded.s) g.append(el("div","card empty","Todavía no hay proveedores dados de alta."));
@@ -155,6 +155,7 @@ function renderHome(app){
       if(st.pend) t.append(el("span","tag pend",`${st.pend} entradas sin pedido`));
       if(st.mods) t.append(el("span","tag mod",`${st.mods} modificaciones por validar`));
       if(st.live) t.append(el("span","tag ok",`${st.live} pedidos en curso`));
+      if(st.ext) t.append(el("span","tag ext",`${st.ext} a extinguir`));
     }
     a.append(t); g.append(a);
   }
@@ -164,7 +165,7 @@ const PARAMS=[["plazo","Pedido a puerto","sem"],["transito","Tránsito","sem"],[
 function renderSupHeader(app,r){
   const s=sup(r.sid), c=cfg(r.sid); document.title=`${s.name}: planificador de compras`;
   const h=el("header","top pad"); const b=el("div","brand");
-  const back=el("a","back","‹ Proveedores"); back.href="#proveedores"; b.append(back, el("h1",null,s.name), el("p",null,[s.contacto?"Contacto: "+s.contacto:"",s.email||""].filter(Boolean).join("   ")||"Sin datos de contacto"));
+  const back=el("a","back","‹ Proveedores"); back.href="#proveedores"; b.append(back, el("h1",null,s.name), el("p",null,[s.razon&&s.razon!==s.name?s.razon+(s.codigo_ax?` (${s.codigo_ax})`:""):"",s.contacto?"Contacto: "+s.contacto:"",s.email||""].filter(Boolean).join("   ")||"Sin datos de contacto"));
   h.append(b);
   const pr=el("div","params");
   for(const [k,l,u] of PARAMS){const w=el("label","param"); w.append(l+" "); const i=el("input"); i.value=c[k]; i.inputMode="numeric"; i.disabled=!state.canWrite; i.setAttribute("aria-label",l); i.dataset.k="param-"+k;
@@ -185,7 +186,7 @@ function visibleProducts(sid){
   const f=state.filters, qq=f.q.trim().toLowerCase();
   return prodsOf(sid).map(p=>({p,r:calc(p,sid)})).filter(({p,r})=>{
     if(qq&&!((p.codigo_ax||"").toLowerCase().includes(qq)||(p.name||"").toLowerCase().includes(qq)||(p.model||"").toLowerCase().includes(qq))) return false;
-    if(f.onlyA&&!r.over.some(v=>v<-1e-9)&&!r.warnings.length&&!r.miss.length) return false;
+    if(f.onlyA&&(p.extinguir||(!r.over.some(v=>v<-1e-9)&&!r.warnings.length&&!r.miss.length))) return false;
     return true;});
 }
 function renderArticles(app,sid){
@@ -213,20 +214,27 @@ function renderArticles(app,sid){
     const po=pendByWeek.get(key(d)); if(po&&state.canWrite){const b=el("button","asg","Crear pedido"); b.title="Crear un pedido con todas las entradas pendientes de esta semana"; b.addEventListener("click",()=>openAsg(sid,po)); h.append(b);} hr.append(h);});
   th.append(hr); t.append(th);
   const vis=visibleProducts(sid);
-  for(const {p,r} of vis) t.append(productBody(p,r,W,sid,c));
+  let sep=false;
+  for(const {p,r} of vis){
+    if(p.extinguir&&!sep){sep=true; const b=el("tbody"), tr=el("tr","exthead"), td=el("td"); td.colSpan=W.length+1; const d=el("div","phin"); d.append(el("b",null,"Artículos a extinguir"), el("span",null,"No se vuelven a comprar: no se proponen pedidos ni cuentan en las alertas. Solo se sigue su stock hasta agotarlo.")); td.append(d); tr.append(td); b.append(tr); t.append(b);}
+    t.append(productBody(p,r,W,sid,c));
+  }
   if(!vis.length){const b=el("tbody"),tr=el("tr"),td=el("td","empty"); td.colSpan=W.length+1; td.style.textAlign="left"; td.textContent=prodsOf(sid).length?"Ningún artículo coincide con el filtro.":"Este proveedor aún no tiene artículos en el planificador. Añádelos con «Nuevo artículo»."; tr.append(td); b.append(tr); t.append(b);}
   wrap.append(t); app.append(wrap);
 }
 function rowsFor(c){return [["dem","Venta prevista"],["entry","Entrada en almacén",null,`ETA + ${c.despacho} sem`],["ped","Pedido a lanzar","x"],["carga","Carga en China (ETD)","x"],["real","Stock real"],["res","Reservas pendientes"],["over","Sobre stock de seguridad"]];}
 function productBody(p,r,W,sid,c){
-  const tb=el("tbody"), collapsed=state.collapsed.has(p.code), compact=state.filters.compact;
+  const tb=el("tbody",p.extinguir?"extb":""), collapsed=state.collapsed.has(p.code), compact=state.filters.compact;
   const h=el("tr","ph"), hc=el("td"); hc.colSpan=W.length+1; const inn=el("div","phin");
   const nb=el("button","name",p.name||p.code); nb.title="Ver o editar los datos del artículo"; nb.addEventListener("click",()=>openProd(p,sid));
   const mv=v=>v==null||v===""?"falta":(fmt(v)||"0");
-  inn.append(nb, el("span","code",dispCode(p)), el("span","meta",`Stock ${mv(p.stock)}  |  Venta ${mv(p.avg)}/sem  |  Seguridad ${mv(p.ss)}  |  Pallet ${mv(p.pallet)}  |  Precio ${p.price==null||p.price===""?"falta":fmtE2(p.price)}`));
-  if(r.miss.length){const mb=el("button","tag bad",`Faltan datos: ${r.miss.join(", ")}. Completar`); mb.addEventListener("click",()=>openProd(p,sid)); inn.append(mb);}
+  const stk=el("span",p.stockAX?"stk ax":"stk man"); stk.append(`Stock ${mv(p.stock)}`); stk.append(el("small",null,p.stockAX?` AX ${fechaCorta(p.stockFecha)}`:" manual"));
+  stk.title=p.stockAX?`Stock disponible real de AX (clave ${p.clave}), del fichero «${p.stockFichero||""}» actualizado el ${fechaLarga(p.stockFecha)}`:(p.clave?`No hay stock de AX para la clave ${p.clave}: se usa el stock manual`:"Sin clave de stock: se usa el stock manual");
+  inn.append(nb, el("span","code",dispCode(p)+(p.clave&&p.codigo_ax&&p.clave!==p.codigo_ax?` · ${p.clave.slice(p.codigo_ax.length)}`:"")), stk, el("span","meta",`Venta ${mv(p.avg)}/sem  |  Seguridad ${mv(p.ss)}  |  Pallet ${mv(p.pallet)}  |  Precio ${p.price==null||p.price===""?"falta":fmtE2(p.price)}`));
+  if(p.extinguir) inn.append(el("span","tag ext","A extinguir: no pedir"));
+  if(r.miss.length&&!p.extinguir){const mb=el("button","tag bad",`Faltan datos: ${r.miss.join(", ")}. Completar`); mb.addEventListener("click",()=>openProd(p,sid)); inn.append(mb);}
   if(r.sug){const s=r.sug; inn.append(el("span","tag "+(s.late||s.rotura?"bad":"warn"), s.late?`Vas tarde: bajo seguridad en ${wLabel(s.week)}. Pide ya ${s.qty} uds`:`Lanzar pedido en ${wLabel(s.launch)}: ${s.qty} uds (bajo seguridad en ${wLabel(s.week)})`));}
-  else if(!r.miss.length) inn.append(el("span","tag ok","Cubierto todo el horizonte"));
+  else if(!r.miss.length&&!p.extinguir) inn.append(el("span","tag ok","Cubierto todo el horizonte"));
   for(const w of r.warnings) inn.append(el("span","tag bad",w));
   const tg=el("button","tog",collapsed?"Mostrar":"Ocultar"); tg.addEventListener("click",()=>{collapsed?state.collapsed.delete(p.code):state.collapsed.add(p.code); render();});
   inn.append(tg); hc.append(inn); h.append(hc); tb.append(h);
@@ -237,7 +245,7 @@ function productBody(p,r,W,sid,c){
       const td=el("td","v"+(i===0?" now":"")), ks=key(W[i]);
       if(k==="dem"||k==="entry"){
         td.classList.remove("v");
-        const inp=el("input","cell"); inp.disabled=!state.canWrite; inp.dataset.k=`${k}|${p.code}|${ks}`;
+        const inp=el("input","cell"); inp.disabled=!state.canWrite||(p.extinguir&&k==="entry"&&!r.entry[i]); inp.dataset.k=`${k}|${p.code}|${ks}`; if(p.extinguir&&k==="entry"&&!r.entry[i]) inp.title="Artículo a extinguir: no se vuelve a pedir";
         if(k==="dem"){
           inp.value=fmt(r.dem[i]); inp.inputMode="decimal";
           if(p.overrides&&(ks in p.overrides)){inp.classList.add("promo"); inp.title="Modificada a mano. Borra el valor para volver a la media.";}
@@ -464,7 +472,7 @@ function orderCard(o,sid,c){
   if(open){
     cd.append(linesTable(o,true));
     if(!ro){const al=el("div","addline"); const s=el("select"); s.setAttribute("aria-label","Artículo a añadir"); const o0=el("option",null,"Añadir artículo…"); o0.value=""; s.append(o0);
-      for(const p of prodsOf(sid)) if(!effLines(o)[p.code]){const op=el("option",null,`${p.name} (${dispCode(p)})`); op.value=p.code; s.append(op);}
+      for(const p of prodsOf(sid)) if(!effLines(o)[p.code]&&!p.extinguir){const op=el("option",null,`${p.name} (${dispCode(p)})`); op.value=p.code; s.append(op);}
       const qi=el("input"); qi.placeholder="Uds"; qi.inputMode="numeric"; qi.setAttribute("aria-label","Unidades");
       const bt=el("button","btn","Añadir"); bt.addEventListener("click",()=>{const code=s.value, v=num(qi.value), p=prod(code); if(!code){toast("Elige un artículo"); return;}
         if(isNaN(v)||v<=0||!Number.isInteger(v)){toast("Introduce un número entero de unidades."); return;} const pal=p.pallet>=1?p.pallet:1; if(v%pal){toast(`${v} no es múltiplo de ${pal} uds por pallet.`); return;}
@@ -626,23 +634,27 @@ const chk = r => { if (r && r.error) throw r.error; return r; };
 async function cargar(){
   S.loading = true;
   try{
-    const [pv, ap, pr, pe] = await Promise.all([
-      sb.schema("maestros").from("proveedores").select("id,codigo_ax,nombre,alias,moneda,grupo_compra,es_importacion,contacto,email,plazo_semanas,transito_semanas,despacho_semanas,dias_pago_antes_embarque,cobertura_semanas"),
-      sb.schema("maestros").from("articulo_proveedor").select("id,articulo_id,proveedor_id,precio,moneda,uds_pallet,orden,articulos(id,codigo_ax,descripcion,modelo,estado,stock_actual,venta_media_semanal,stock_seguridad)").eq("planificar", true),
-      sb.schema("compras").from("prevision_venta").select("articulo_id,semana,unidades").gte("semana", key(today)),
+    const [pv, ap, pr, pe, st] = await Promise.all([
+      sb.schema("maestros").from("proveedores").select("id,codigo_ax,nombre,nombre_corto,alias,moneda,grupo_compra,es_importacion,contacto,email,plazo_semanas,transito_semanas,despacho_semanas,dias_pago_antes_embarque,cobertura_semanas"),
+      sb.schema("maestros").from("articulo_proveedor").select("id,articulo_id,proveedor_id,precio,moneda,uds_pallet,orden,clave_stock,a_extinguir,venta_media_semanal,stock_seguridad,stock_manual,descripcion,modelo,articulos(id,codigo_ax,descripcion,modelo,estado)").eq("planificar", true).range(0, 4999),
+      sb.schema("compras").from("prevision_venta").select("articulo_proveedor_id,semana,unidades").gte("semana", key(today)).range(0, 9999),
       sb.schema("compras").from("pedidos").select("*").order("eta"),
+      sb.schema("ax").from("v_stock_actual").select("clave,disponible_real,fecha_stock,fichero").range(0, 9999),
     ]);
-    for (const r of [pv, ap, pr, pe]) chk(r);
-    const ov = {}; for (const r of pr.data){ (ov[r.articulo_id] = ov[r.articulo_id] || {})[r.semana] = +r.unidades; }
+    for (const r of [pv, ap, pr, pe, st]) chk(r);
+    const ov = {}; for (const r of pr.data){ (ov[r.articulo_proveedor_id] = ov[r.articulo_proveedor_id] || {})[r.semana] = +r.unidades; }
+    const stock = new Map(st.data.map(x => [x.clave, x]));
+    S.stockInfo = st.data[0] ? { fecha: st.data[0].fecha_stock, fichero: st.data[0].fichero, n: st.data.length } : null;
     const conProd = new Set(ap.data.map(a => a.proveedor_id));
-    state.suppliers = pv.data.filter(p => p.es_importacion || conProd.has(p.id)).map(p => ({
-      _id:"prov-"+p.id, dbId:p.id, codigo_ax:p.codigo_ax, name:p.nombre, alias:p.alias, familia:p.grupo_compra || "", contacto:p.contacto || "", email:p.email || "",
+    state.suppliers = pv.data.filter(p => conProd.has(p.id) || p.es_importacion).map(p => ({
+      _id:"prov-"+p.id, dbId:p.id, codigo_ax:p.codigo_ax, name:p.nombre_corto || p.nombre.replace(/@+$/,""), razon:p.nombre.replace(/@+$/,""), alias:p.alias, familia:p.grupo_compra || "", contacto:p.contacto || "", email:p.email || "",
       moneda:p.moneda || "EUR", plazo:p.plazo_semanas ?? 12, transito:p.transito_semanas ?? 5, despacho:p.despacho_semanas ?? 1,
       pagoDias:p.dias_pago_antes_embarque ?? 15, cobertura:p.cobertura_semanas ?? 8, horizonte:52, sort: conProd.has(p.id) ? 0 : 1 }));
-    state.products = ap.data.filter(a => a.articulos).map(a => ({
-      _id:"ap-"+a.id, apId:a.id, artId:a.articulos.id, code:String(a.articulos.id), codigo_ax:a.articulos.codigo_ax, estado:a.articulos.estado,
-      name:a.articulos.descripcion, model:a.articulos.modelo || "", stock:num0(a.articulos.stock_actual), avg:num0(a.articulos.venta_media_semanal), ss:num0(a.articulos.stock_seguridad),
-      pallet:a.uds_pallet, price:num0(a.precio), supplier:"prov-"+a.proveedor_id, sort:a.orden ?? 999, overrides: ov[a.articulos.id] || {} }));
+    state.products = ap.data.filter(a => a.articulos).map(a => { const sx = a.clave_stock ? stock.get(a.clave_stock) : null; return {
+      _id:"ap-"+a.id, apId:a.id, artId:a.articulos.id, code:String(a.id), codigo_ax:a.articulos.codigo_ax, estado:a.articulos.estado, clave:a.clave_stock || "",
+      name:a.descripcion || a.articulos.descripcion, model:a.modelo || a.articulos.modelo || "", avg:num0(a.venta_media_semanal), ss:num0(a.stock_seguridad),
+      stockAX: !!sx, stock: sx ? +sx.disponible_real : num0(a.stock_manual), stockManual:num0(a.stock_manual), stockFecha: sx ? sx.fecha_stock : null, stockFichero: sx ? sx.fichero : null,
+      extinguir: !!a.a_extinguir, pallet:a.uds_pallet, price:num0(a.precio), supplier:"prov-"+a.proveedor_id, sort:a.orden ?? 999, overrides: ov[a.id] || {} }; });
     state.orders = pe.data.map(fromRow);
     state.loaded.s = true; S.loaded = true;
   } catch(e){ console.error(e); toast("No se han podido cargar los datos del planificador."); S.loaded = true; }
@@ -671,15 +683,17 @@ function saveProduct(p){
   const old = state.products.find(x => x._id === p._id) || {}; const i = state.products.findIndex(x => x._id === p._id);
   if (i >= 0) state.products[i] = p; render();
   return enqueue(p._id, async () => {
-    const a = {}, F = { stock:"stock_actual", avg:"venta_media_semanal", ss:"stock_seguridad", name:"descripcion", model:"modelo", codigo_ax:"codigo_ax", estado:"estado" };
-    for (const [k,c] of Object.entries(F)) if (old[k] !== p[k]) a[c] = p[k] === "" ? null : p[k];
+    const a = {}; if (old.codigo_ax !== p.codigo_ax) a.codigo_ax = p.codigo_ax || null; if (old.estado !== p.estado) a.estado = p.estado;
     if (Object.keys(a).length) chk(await sb.schema("maestros").from("articulos").update(a).eq("id", p.artId));
-    const b = {}; if (old.pallet !== p.pallet) b.uds_pallet = p.pallet; if (old.price !== p.price){ b.precio = p.price; b.precio_origen = "manual"; }
+    const b = {}, F = { avg:"venta_media_semanal", ss:"stock_seguridad", pallet:"uds_pallet", name:"descripcion", model:"modelo", clave:"clave_stock", extinguir:"a_extinguir", stockManual:"stock_manual" };
+    for (const [k,c] of Object.entries(F)) if (old[k] !== p[k]) b[c] = p[k] === "" ? null : p[k];
+    if (old.price !== p.price){ b.precio = p.price; b.precio_origen = "manual"; }
     if (Object.keys(b).length) chk(await sb.schema("maestros").from("articulo_proveedor").update(b).eq("id", p.apId));
     const o0 = old.overrides || {}, o1 = p.overrides || {};
     const ups = Object.keys(o1).filter(k => o1[k] !== o0[k]), dels = Object.keys(o0).filter(k => !(k in o1));
-    if (ups.length) chk(await sb.schema("compras").from("prevision_venta").upsert(ups.map(k => ({ articulo_id:p.artId, semana:k, unidades:o1[k] })), { onConflict:"articulo_id,semana" }));
-    if (dels.length) chk(await sb.schema("compras").from("prevision_venta").delete().eq("articulo_id", p.artId).in("semana", dels));
+    if (ups.length) chk(await sb.schema("compras").from("prevision_venta").upsert(ups.map(k => ({ articulo_proveedor_id:p.apId, semana:k, unidades:o1[k] })), { onConflict:"articulo_proveedor_id,semana" }));
+    if (dels.length) chk(await sb.schema("compras").from("prevision_venta").delete().eq("articulo_proveedor_id", p.apId).in("semana", dels));
+    if (b.clave_stock !== undefined) await cargar();
   });
 }
 function saveOrder(o){
@@ -695,9 +709,45 @@ function delOrder(o){
   return enqueue(o._id, async () => { const id = o.dbId || S.idMap[o._id]; if (id) chk(await sb.schema("compras").from("pedidos").delete().eq("id", id)); });
 }
 
+/* ===== Stock de AX: fecha y carga del fichero ===== */
+function fechaCorta(f){ if (!f) return ""; const d = new Date(f); return d.toLocaleDateString("es-ES",{day:"2-digit",month:"2-digit"}); }
+function fechaLarga(f){ if (!f) return ""; const d = new Date(f); return d.toLocaleDateString("es-ES",{day:"numeric",month:"short",year:"numeric"}).replace(".","") + " a las " + d.toLocaleTimeString("es-ES",{hour:"2-digit",minute:"2-digit"}); }
+function stockBox(){
+  const w = el("div","stockbox"); const i = S.stockInfo;
+  w.append(el("b",null,"Stock de AX"), el("span",null, i ? `Actualizado el ${fechaLarga(i.fecha)}` : "Todavía no se ha cargado"));
+  if (i && i.fichero) w.append(el("small",null,i.fichero));
+  if (state.canWrite){
+    const inp = el("input"); inp.type = "file"; inp.accept = ".xlsx,.xlsm,.xls"; inp.hidden = true;
+    const b = el("button","btn small primary","Cargar fichero de stock"); b.addEventListener("click", () => inp.click());
+    inp.addEventListener("change", () => { if (inp.files[0]) cargarStock(inp.files[0], b); });
+    w.append(b, inp);
+  }
+  return w;
+}
+const numX = v => { if (v == null || v === "") return 0; const n = typeof v === "number" ? v : Number(String(v).replace(",", ".")); return isFinite(n) ? n : 0; };
+async function cargarStock(file, btn){
+  btn.disabled = true; btn.textContent = "Leyendo el fichero…";
+  try{
+    const wb = XLSX.read(await file.arrayBuffer(), { type:"array" });
+    const ws = wb.Sheets["INVENTSUM"]; if (!ws) throw new Error("El fichero no tiene la hoja INVENTSUM.");
+    const rows = XLSX.utils.sheet_to_json(ws, { defval:null });
+    const data = rows.filter(r => r.ITEMID).map(r => { const fis = numX(r.PHYSICALINVENT), res = numX(r.RESERVPHYSICAL), ven = numX(r.ONORDER);
+      return { articulo_id:String(r.ITEMID).trim(), nombre:r.ITEMNAME || null, config_id: r.CONFIGID ? String(r.CONFIGID).trim() || null : null, talla_id: r.INVENTSIZEID ? String(r.INVENTSIZEID) : null,
+        almacen: r.INVENTLOCATIONID || null, fisico:fis, reservado_fisico:res, pedido_compra:numX(r.ORDERED), pedido_venta:ven, reservado_pedido:numX(r.RESERVORDERED),
+        disponible:numX(r.Disponible), minimos: r.Minimos == null ? null : numX(r.Minimos), disponible_real: fis - res - ven }; });
+    if (!data.length) throw new Error("La hoja INVENTSUM está vacía.");
+    const fecha = new Date(file.lastModified || Date.now()).toISOString();
+    if (!confirm(`Se cargarán ${data.length} líneas de stock del fichero «${file.name}» (guardado el ${fechaLarga(fecha)}). ¿Continuar?`)){ btn.disabled = false; btn.textContent = "Cargar fichero de stock"; return; }
+    btn.textContent = "Guardando…";
+    const c = chk(await sb.schema("core").from("cargas").insert({ tipo:"stock", fichero:file.name, filas:data.length, fecha_datos:fecha, notas:"Carga desde la app" }).select("id").single());
+    for (let i = 0; i < data.length; i += 500) chk(await sb.schema("ax").from("stock_inventsum").insert(data.slice(i, i+500).map(r => Object.assign({ carga_id:c.data.id }, r))));
+    toast(`Stock actualizado: ${data.length} líneas del ${fechaLarga(fecha)}`); await cargar();
+  } catch(e){ console.error(e); toast(e.message && !e.code ? e.message : msgErr(e)); btn.disabled = false; btn.textContent = "Cargar fichero de stock"; }
+}
+
 /* ===== Ficha de artículo: nuevo o existente ===== */
 let prodCtx = null;
-const PF = { codigo_ax:"pCode", model:"pModel", name:"pName", stock:"pStock", avg:"pAvg", ss:"pSS", pallet:"pPal", price:"pPrice" };
+const PF = { codigo_ax:"pCode", model:"pModel", name:"pName", clave:"pClave", stock:"pStock", avg:"pAvg", ss:"pSS", pallet:"pPal", price:"pPrice" };
 function openProd(p, sid){
   const isNew = !p; prodCtx = { p, sid, isNew };
   $("#prodTitle").textContent = isNew ? `Nuevo artículo de ${sup(sid).name}` : p.name;
@@ -706,6 +756,9 @@ function openProd(p, sid){
   for (const [f,id] of Object.entries(PF)){ const i = $("#"+id); i.value = src[f] == null ? "" : src[f]; i.disabled = !state.canWrite || (f === "codigo_ax" && !isNew && !!src.codigo_ax); }
   for (const box of document.querySelectorAll("#fProd .f[data-f]")){ const f = box.dataset.f; const r = REQ.find(x => x[0] === f); if (!r) continue;
     const miss = !isNew && missing(src).includes(r[1]); box.classList.toggle("miss", miss); const h = box.querySelector(".hint"); if (h) h.textContent = miss ? "Falta este dato para planificar." : ""; }
+  $("#pExt").checked = !!src.extinguir; $("#pExt").disabled = !state.canWrite;
+  const sx = $("#pStock"); sx.disabled = !state.canWrite || !!src.stockAX;
+  sx.parentElement.querySelector(".hint").textContent = src.stockAX ? `Stock de AX (${src.clave}) del ${fechaLarga(src.stockFecha)}. Se actualiza al cargar el fichero de stock.` : (isNew ? "Se tomará de AX si la clave existe en el fichero de stock." : (src.clave ? `No hay stock de AX para ${src.clave}: introdúcelo a mano.` : "Sin clave de stock: introdúcelo a mano."));
   $("#pErr").textContent = ""; $("#prodSave").textContent = isNew ? "Crear artículo" : "Guardar"; $("#prodSave").disabled = !state.canWrite;
   $("#dlgProd").showModal(); setTimeout(() => $("#"+(isNew ? "pCode" : "pStock")).focus(), 30);
 }
@@ -713,15 +766,17 @@ $("#prodCancel").addEventListener("click", () => $("#dlgProd").close());
 $("#fProd").addEventListener("submit", async ev => {
   ev.preventDefault(); if (!state.canWrite){ $("#dlgProd").close(); return; }
   const { p, sid, isNew } = prodCtx, val = f => $("#"+PF[f]).value.trim(), err = m => { $("#pErr").textContent = m; };
-  const code = val("codigo_ax").toUpperCase(), name = val("name");
+  const code = val("codigo_ax").toUpperCase(), name = val("name"), clave = (val("clave").toUpperCase() || code), ext = $("#pExt").checked;
   if (code && !/^[A-Z0-9._\-]+$/.test(code)) return err("El código solo puede llevar letras, números, guiones y puntos (sin espacios).");
   if (!name) return err("La descripción es obligatoria.");
   const out = {}; for (const [f] of REQ){ const raw = val(f); if (raw === ""){ out[f] = null; continue; } const v = f === "price" ? parsePrice(raw) : num(raw);
     if (isNaN(v)) return err(`Revisa el campo ${REQ.find(x => x[0] === f)[1]}: debe ser un número.`);
     if (f === "pallet" && (v < 1 || !Number.isInteger(v))) return err("Las uds por pallet deben ser un entero de 1 o más.");
+    if (f === "stock" && p && p.stockAX) continue;
     if (f !== "stock" && v < 0) return err(`El ${REQ.find(x => x[0] === f)[1]} no puede ser negativo.`); out[f] = v; }
   if (!isNew){
-    const np = Object.assign(clone(p), { name, model:val("model") }, out);
+    const np = Object.assign(clone(p), { name, model:val("model"), clave, extinguir:ext }, out);
+    if (!p.stockAX){ np.stockManual = out.stock; } else { np.stock = p.stock; }
     if (code && !p.codigo_ax){ np.codigo_ax = code; np.estado = "activo"; }
     $("#dlgProd").close(); saveProduct(np); const ms = missing(np); toast(ms.length ? `Artículo guardado. Faltan: ${ms.join(", ")}` : "Artículo guardado"); return;
   }
@@ -730,15 +785,16 @@ $("#fProd").addEventListener("submit", async ev => {
     let artId = null;
     if (code){ const ex = chk(await sb.schema("maestros").from("articulos").select("id").eq("codigo_ax", code).maybeSingle()); if (ex.data) artId = ex.data.id; }
     if (artId){
-      if (state.products.some(x => x.artId === artId && x.supplier === sid)){ bt.disabled = false; return err("Ese artículo ya está en el planificador de este proveedor."); }
-      chk(await sb.schema("maestros").from("articulos").update({ stock_actual:out.stock, venta_media_semanal:out.avg, stock_seguridad:out.ss }).eq("id", artId));
+      if (state.products.some(x => x.artId === artId && x.supplier === sid && (x.clave || "") === (clave || ""))){ bt.disabled = false; return err("Ese artículo con ese acabado ya está en el planificador de este proveedor."); }
     } else {
-      const r = chk(await sb.schema("maestros").from("articulos").insert({ codigo_ax:code || null, descripcion:name, modelo:val("model") || null, estado: code ? "activo" : "muestra",
-        stock_actual:out.stock, venta_media_semanal:out.avg, stock_seguridad:out.ss }).select("id").single()); artId = r.data.id;
+      const r = chk(await sb.schema("maestros").from("articulos").insert({ codigo_ax:code || null, descripcion:name, modelo:val("model") || null, estado: code ? "activo" : "muestra" }).select("id").single()); artId = r.data.id;
     }
     const orden = Math.max(0, ...prodsOf(sid).map(x => x.sort || 0)) + 1;
-    chk(await sb.schema("maestros").from("articulo_proveedor").upsert({ articulo_id:artId, proveedor_id:sup(sid).dbId, precio:out.price, moneda:cfg(sid).moneda, uds_pallet:out.pallet,
-      planificar:true, orden, precio_origen:"manual" }, { onConflict:"articulo_id,proveedor_id" }));
+    const ex = chk(await sb.schema("maestros").from("articulo_proveedor").select("id").eq("articulo_id", artId).eq("proveedor_id", sup(sid).dbId).is("clave_stock", null).maybeSingle());
+    const row = { precio:out.price, moneda:cfg(sid).moneda, uds_pallet:out.pallet, planificar:true, orden, precio_origen:"manual", clave_stock:clave || null, a_extinguir:ext,
+      venta_media_semanal:out.avg, stock_seguridad:out.ss, stock_manual:out.stock, descripcion:name, modelo:val("model") || null };
+    if (ex.data) chk(await sb.schema("maestros").from("articulo_proveedor").update(row).eq("id", ex.data.id));
+    else chk(await sb.schema("maestros").from("articulo_proveedor").insert(Object.assign({ articulo_id:artId, proveedor_id:sup(sid).dbId }, row)));
     $("#dlgProd").close(); toast(code ? "Artículo añadido al planificador" : "Muestra añadida al planificador (sin referencia de AX)"); await cargar();
   } catch(e){ console.error(e); err(msgErr(e)); }
   bt.disabled = false;

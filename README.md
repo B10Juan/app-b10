@@ -2,7 +2,7 @@
 
 Aplicación web interna de B10. Los datos viven en Supabase (proyecto B10) y el código en este repositorio.
 
-Versión 0.3.0: **Compras** (análisis de facturas), **Planificador de compras** (revisión de artículos, pedidos lanzados con versiones y previsión de pagos de importaciones) y **Gestión de usuarios** con contraseñas.
+Versión 0.4.0: **Compras** (análisis de facturas), **Planificador de compras** (revisión de artículos, pedidos lanzados con versiones y previsión de pagos de importaciones) y **Gestión de usuarios** con contraseñas.
 
 ## Estructura
 
@@ -51,6 +51,18 @@ Cada cambio que se suba a GitHub se publica solo en Netlify en un minuto.
 - Cada usuario puede cambiar su contraseña desde el botón «Contraseña».
 - Permisos por módulo: Sin acceso, Visualización (ver, filtrar y exportar) o Edición. Los aplica la base de datos.
 - Scripts relacionados: supabase/migrations/06_usuarios_con_contrasena.sql
+
+## Stock de AX
+
+En Planificador de compras > Proveedores, el recuadro «Stock de AX» muestra la fecha del último fichero cargado.
+Con «Cargar fichero de stock» se sube el listado de AX (hoja INVENTSUM). El stock de cada artículo es el
+«Disponible real» (físico - reservado - pedido de venta), sumando almacenes, buscado por la clave artículo + acabado
+(SEARCHKEY2). Si un artículo no tiene clave en el fichero, se usa su stock manual.
+
+## Artículos a extinguir
+
+Se marcan en la ficha del artículo («A extinguir: no se vuelve a comprar»). Aparecen al final de cada proveedor,
+sin sugerencias de pedido ni alertas, y no se les pueden añadir entradas nuevas.
 
 ## Cargas de facturas
 

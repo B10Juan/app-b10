@@ -48,6 +48,10 @@
     </div>
     <div class="f" data-f="name"><label for="pName">Descripción</label><input id="pName" autocomplete="off" placeholder="Vela 1700x800"><span class="hint">Obligatoria.</span></div>
     <div class="f2">
+      <div class="f" data-f="clave"><label for="pClave">Clave de stock (artículo + acabado)</label><input id="pClave" autocomplete="off" placeholder="P-COM-BAN-004BCO"><span class="hint">Como en SEARCHKEY2 del fichero de stock. Vacía = el código AX.</span></div>
+      <div class="f" data-f="ext"><label for="pExt">Situación</label><label style="display:flex;gap:8px;align-items:center;font-weight:500;color:var(--ink);padding-top:6px"><input type="checkbox" id="pExt"> A extinguir: no se vuelve a comprar</label></div>
+    </div>
+    <div class="f2">
       <div class="f" data-f="stock"><label for="pStock">Stock actual (uds)</label><input id="pStock" inputmode="decimal"><span class="hint"></span></div>
       <div class="f" data-f="avg"><label for="pAvg">Venta media semanal</label><input id="pAvg" inputmode="decimal"><span class="hint"></span></div>
       <div class="f" data-f="ss"><label for="pSS">Stock de seguridad</label><input id="pSS" inputmode="decimal"><span class="hint"></span></div>

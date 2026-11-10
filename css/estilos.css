@@ -294,3 +294,21 @@ dialog ul{margin:0 0 12px;padding-left:18px;font-size:14px}
 a.mod-card.soon{opacity:.55;pointer-events:none;border-left-color:var(--line-strong)}
 .who .btn{margin-left:6px}
 .loading{padding:40px;text-align:center;color:var(--ink-2)}
+
+/* ---- Stock de AX y artículos a extinguir ---- */
+.ph .stk{font-size:13px;font-weight:600;color:var(--ink)}
+.ph .stk small{font-weight:500;margin-left:4px;padding:0 5px;border-radius:8px}
+.ph .stk.ax small{background:var(--arrive-soft);color:var(--arrive)}
+.ph .stk.man small{background:var(--amber-soft);color:var(--amber)}
+.tag.ext{background:var(--surface-2);color:var(--ink-2);border:1px dashed var(--line-strong)}
+.grid tbody.extb tr.ph td{background:repeating-linear-gradient(135deg,var(--surface-2),var(--surface-2) 8px,var(--surface) 8px,var(--surface) 16px)}
+.grid tbody.extb td{color:var(--ink-3)}
+.grid tbody.extb .ph .name{color:var(--ink-2);text-decoration-style:dashed}
+.grid tr.exthead td{background:var(--surface);border-top:3px solid var(--line-strong);height:auto}
+.grid tr.exthead .phin{display:flex;gap:12px;align-items:baseline;flex-wrap:wrap;padding:12px 10px;position:sticky;left:0;font-family:"Barlow",sans-serif}
+.grid tr.exthead b{font-size:16px;color:var(--ink)}
+.grid tr.exthead span{color:var(--ink-2);font-size:13px}
+.stockbox{display:grid;gap:2px;justify-items:start;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px 12px;font-size:13.5px;color:var(--ink-2)}
+.stockbox b{color:var(--ink);font-size:14px}
+.stockbox small{color:var(--ink-3);font-size:12px}
+.stockbox .btn{margin-top:4px}
