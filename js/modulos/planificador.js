@@ -2,6 +2,7 @@
 // La lógica de cálculo y las pantallas son las del prototipo validado; aquí se conectan con Supabase.
 import { sb, ctx, render, nivel, puedeEditar } from "../app.js";
 import { toast as toastU, sheet as sheetU, safe as safeU } from "../util.js";
+import { logo, conImagen } from "../marca.js";
 
 const $ = s => document.querySelector(s);
 const el = (t, cls, txt) => { const e = document.createElement(t); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; };
@@ -498,12 +499,14 @@ function orderCard(o,sid,c){
 
 function renderPlanMenu(app){
   document.title="Planificador de compras";
-  const h=el("header","top pad"); const b=el("div","brand"); const bk=el("a","back","‹ APP B10"); bk.href="#"; b.append(bk,el("h1",null,"Planificador de compras"),el("p",null,"Elige qué quieres hacer.")); h.append(b,whoChip()); app.append(h);
+  const h=el("header","top pad hero"); const b=el("div","brand marca"); const lg=el("a"); lg.href="#"; lg.append(logo("logo-hero")); b.append(lg, el("span","lema","planificador de compras")); h.append(b,whoChip()); app.append(h);
+  const sub=el("div","pad"); const bk=el("a","back","‹ APP B10"); bk.href="#"; sub.append(bk, el("p","secsub","Elige qué quieres hacer.")); app.append(sub);
   const g=el("div","modules pad");
   if(perm("compras")!=="ninguno"){const a=el("a","mod-card"); a.href="#proveedores"; a.append(el("h2",null,"Planificador de compras"),el("p",null,"Revisión de artículos para compras y pedidos lanzados, por proveedor."));
     const t=el("div","stats"); let br=0,pe=0; for(const s of state.suppliers){const st=supStats(s._id); br+=st.brk; pe+=st.pend;} if(br) t.append(el("span","tag bad",`${br} artículos con rotura`)); if(pe) t.append(el("span","tag pend",`${pe} entradas sin pedido`)); a.append(t); g.append(a);}
   if(perm("pagos")!=="ninguno"){const a=el("a","mod-card pay"); a.href="#pagos"; a.append(el("h2",null,"Previsión pagos importaciones"),el("p",null,"Calendario de pagos de contenedores a partir de las fechas de embarque y los importes de los pedidos."));
     const rows=payRows(), t=el("div","stats"); const nx=sumMon(rows.filter(r=>!r.paid&&r.date<addW(today,4))); t.append(el("span","tag neutral",`${isZero(nx)?"Nada":fmtAny0(nx)} en las próximas 4 semanas`)); const ov=rows.filter(r=>r.late).length; if(ov) t.append(el("span","tag bad",`${ov} vencidos`)); a.append(t); g.append(a);}
+  for(const card of [...g.querySelectorAll("a.mod-card")]) conImagen(card, card.getAttribute("href")==="#pagos"?"pagos":"proveedores");
   app.append(g);
 }
 

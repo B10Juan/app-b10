@@ -5,10 +5,12 @@ import { $, el, toast } from "./util.js";
 import { renderCompras, renderComprasRef } from "./modulos/compras.js";
 import { renderUsuarios } from "./modulos/usuarios.js";
 import { renderPlanificador } from "./modulos/planificador.js";
+import { logo, conImagen, icono } from "./marca.js";
 
 export const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // Estado compartido de la sesión
+export { conImagen };
 export const ctx = { ready:false, session:null, me:null, permisos:{}, modulos:[], ui:{ dd:null, ddq:"" } };
 
 export const isAdmin = () => !!(ctx.me && ctx.me.es_admin && ctx.me.activo);
@@ -30,7 +32,7 @@ let rq = false;
 export function render(){ if (rq) return; rq = true; requestAnimationFrame(() => { rq = false; draw(); }); }
 
 function draw(){
-  const app = $("#app");
+  let app = $("#app"); app.classList.remove("con-lateral");
   const sx = window.scrollX, sy = window.scrollY;
   const gw0 = document.querySelector(".gridwrap"), gx = gw0 ? gw0.scrollLeft : 0, gy = gw0 ? gw0.scrollTop : 0;
   const ae = document.activeElement, aeKey = ae && ae.dataset ? ae.dataset.k : null;
@@ -43,6 +45,9 @@ function draw(){
   if (md.debe_cambiar_password) return drawPassword(app, true);
   if (r === "contrasena") return drawPassword(app, false);
   const esPlan = r === "planificador" || r === "proveedores" || /^prov-\d+(-pedidos)?$/.test(r);
+  const esApp = ["compras","compras-ref","proveedores","pagos","usuarios"].includes(r) || /^prov-\d+/.test(r);
+  app.classList.toggle("con-lateral", esApp);
+  if (esApp){ app.append(lateral(r)); const m = el("main","contenido"); app.append(m); app = m; }
   if (r === "compras" && nivel("compras")) renderCompras(app);
   else if (r === "compras-ref" && nivel("compras")) renderComprasRef(app);
   else if (esPlan && (nivel("planificador") || (r === "planificador" && nivel("pagos")))) renderPlanificador(app, r);
@@ -67,7 +72,7 @@ export function cabecera(app, titulo, sub, volver, modulo){
 
 function drawInicio(app){
   document.title = "APP B10: Gestión";
-  const h = el("header","top pad"), b = el("div","brand"), h1 = el("h1",null,"APP B10"); h1.append(el("span","sub2","Gestión")); b.append(h1);
+  const h = el("header","top pad hero"), b = el("div","brand marca"); const lg = el("a"); lg.href = "#"; lg.append(logo("logo-hero")); b.append(lg, el("span","lema","gestión"));
   const w = el("div","who"); w.append(el("span",null,(ctx.me.nombre || ctx.session.user.email) + (isAdmin() ? " (administrador)" : "")));
   const pwb = el("a","btn small","Contraseña"); pwb.href = "#contrasena"; const out = el("button","btn small","Salir"); out.addEventListener("click", async () => { await sb.auth.signOut(); }); w.append(pwb, out);
   h.append(b, w); app.append(h);
@@ -78,12 +83,33 @@ function drawInicio(app){
     const a = el("a","mod-card"+(m.clase?" "+m.clase:"")+(m.listo?"":" soon")); if (m.listo) a.href = "#"+m.ruta;
     a.append(el("h2",null,m.titulo), el("p",null,m.texto));
     const t = el("div","stats"); t.append(el("span","tag "+(m.listo?"neutral":"pend"), m.listo ? ((nivel(m.codigo)||nivel(m.tambien||""))==="editar"?"Edición":"Visualización") : "Próximamente")); a.append(t);
-    g.append(a); n++;
+    g.append(conImagen(a, m.codigo)); n++;
   }
-  if (isAdmin()){ const a = el("a","mod-card usr"); a.href = "#usuarios"; a.append(el("h2",null,"Gestión de usuarios"), el("p",null,"Permisos de consulta o edición de cada persona en cada módulo.")); g.append(a); n++; }
+  if (isAdmin()){ const a = el("a","mod-card usr"); a.href = "#usuarios"; a.append(el("h2",null,"Gestión de usuarios"), el("p",null,"Permisos de consulta o edición de cada persona en cada módulo.")); g.append(conImagen(a, "usuarios")); n++; }
   if (!n) g.append(el("div","card empty","Todavía no tienes acceso a ningún módulo. Pide a un administrador que te dé permisos."));
   app.append(g);
   app.append(el("p","hint pad",`Versión ${APP_VERSION}`));
+}
+
+// Banda lateral de las aplicaciones: logo, accesos a los módulos y sesión
+function lateral(r){
+  const a = el("aside","lateral"); a.setAttribute("aria-label","Navegación de la APP");
+  const lk = el("a","lat-logo"); lk.href = "#"; lk.title = "APP B10: inicio"; lk.append(logo("logo-lat")); a.append(lk);
+  const nav = el("nav","lat-nav");
+  const item = (href, ic, txt, act) => { const x = el("a","lat-item"+(act?" on":"")); x.href = href; x.title = txt; if (act) x.setAttribute("aria-current","page"); x.append(icono(ic), el("span",null,txt)); nav.append(x); };
+  item("#", "inicio", "Inicio", false);
+  if (nivel("compras")) item("#compras", "compras", "Compras", r.startsWith("compras"));
+  if (nivel("planificador")) item("#proveedores", "planificador", "Planificador", r === "proveedores" || /^prov-/.test(r));
+  if (nivel("pagos")) item("#pagos", "pagos", "Pagos", r === "pagos");
+  if (isAdmin()) item("#usuarios", "usuarios", "Usuarios", r === "usuarios");
+  a.append(nav);
+  const pie = el("div","lat-pie");
+  const ini = (ctx.me.nombre || ctx.session.user.email).split(/[\s@.]+/).filter(Boolean).slice(0,2).map(x => x[0].toUpperCase()).join("");
+  const av = el("span","lat-av",ini); av.title = ctx.me.nombre || ctx.session.user.email; pie.append(av);
+  const pw = el("a","lat-item"); pw.href = "#contrasena"; pw.title = "Cambiar contraseña"; pw.append(icono("clave"), el("span",null,"Clave"));
+  const out = el("button","lat-item"); out.type = "button"; out.title = "Salir"; out.append(icono("salir"), el("span",null,"Salir")); out.addEventListener("click", async () => { await sb.auth.signOut(); });
+  pie.append(pw, out); a.append(pie);
+  return a;
 }
 
 function drawLogin(app){

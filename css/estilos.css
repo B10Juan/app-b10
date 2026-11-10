@@ -328,3 +328,78 @@ a.mod-card.soon{opacity:.55;pointer-events:none;border-left-color:var(--line-str
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--granate:#B8475A}}
 :root[data-theme="dark"]{--granate:#B8475A}
 .grid thead a.otag.c{background:var(--granate)}
+
+/* =====================================================================
+   Imagen de marca b10: tonos neutros (piedra, blanco roto, carbón)
+   ===================================================================== */
+:root{
+  --bg:#F3F1ED; --surface:#FFFFFF; --surface-2:#F7F5F2; --line:#E2DED7; --line-strong:#C3BDB3;
+  --ink:#1E1D1B; --ink-2:#55524C; --ink-3:#8A857C;
+  --steel:#2A2927; --steel-soft:#ECE8E1;
+  --band:#1E1D1B; --band-ink:#CFCAC1;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#141413; --surface:#1D1C1A; --surface-2:#242320; --line:#34322E; --line-strong:#4A4740;
+    --ink:#EDEAE4; --ink-2:#B9B4AA; --ink-3:#8A857C; --steel:#E9E5DE; --steel-soft:#2E2C28;
+    --band:#0E0E0D; --band-ink:#B9B4AA;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#141413; --surface:#1D1C1A; --surface-2:#242320; --line:#34322E; --line-strong:#4A4740;
+  --ink:#EDEAE4; --ink-2:#B9B4AA; --ink-3:#8A857C; --steel:#E9E5DE; --steel-soft:#2E2C28;
+  --band:#0E0E0D; --band-ink:#B9B4AA;
+}
+.btn.primary{color:var(--surface)}
+
+/* Cabecera de las pantallas de navegación */
+header.hero{padding-top:26px;padding-bottom:22px;border-bottom:1px solid var(--line);margin-bottom:22px;align-items:center}
+.brand.marca{display:flex;align-items:center;gap:18px}
+.brand.marca a{display:inline-flex}
+.logo-hero{height:46px;width:auto;display:block}
+.logo-hero.txt{font-size:40px;font-weight:700;letter-spacing:-.02em;line-height:1;color:var(--ink)}
+.brand.marca .lema{font-size:20px;color:var(--ink-2);letter-spacing:.02em;border-left:1px solid var(--line-strong);padding-left:18px;text-transform:lowercase}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .logo-hero:not(.txt){filter:invert(1)}}
+:root[data-theme="dark"] .logo-hero:not(.txt){filter:invert(1)}
+
+/* Tarjetas de módulo con imagen */
+a.mod-card.has-img{padding:0;border-left-width:0;overflow:hidden;display:flex;flex-direction:column;min-height:0;transition:border-color .15s, transform .15s}
+a.mod-card.has-img:hover{transform:translateY(-2px)}
+.mod-img{aspect-ratio:16/9;overflow:hidden;background:var(--surface-2)}
+.mod-img img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .4s}
+a.mod-card.has-img:hover .mod-img img{transform:scale(1.03)}
+.mod-body{padding:16px 18px 18px;border-top:3px solid var(--steel)}
+a.mod-card.buy .mod-body{border-top-color:var(--amber)}
+a.mod-card.pay .mod-body{border-top-color:var(--arrive)}
+a.mod-card.usr .mod-body{border-top-color:var(--promo)}
+a.mod-card.soon .mod-body{border-top-color:var(--line-strong)}
+a.mod-card.soon .mod-img img{filter:grayscale(1)}
+.mod-body h2{text-transform:lowercase;font-weight:600;letter-spacing:.01em}
+@media (prefers-reduced-motion:reduce){a.mod-card.has-img,.mod-img img{transition:none}}
+
+/* Banda lateral dentro de las aplicaciones */
+#app.con-lateral{display:grid;grid-template-columns:84px minmax(0,1fr);min-height:100vh}
+.lateral{position:sticky;top:0;height:100vh;background:var(--band);color:var(--band-ink);display:flex;flex-direction:column;align-items:center;gap:10px;padding:16px 6px calc(14px + env(safe-area-inset-bottom,0px));z-index:6}
+.lat-logo{display:flex;justify-content:center;padding:4px 0 12px;border-bottom:1px solid rgba(255,255,255,.12);width:100%}
+.logo-lat{width:52px;height:auto;filter:invert(1) brightness(1.15)}
+.logo-lat.txt{filter:none;color:#fff;font-weight:700;font-size:24px}
+.lat-nav{display:flex;flex-direction:column;gap:4px;width:100%;flex:1}
+.lat-item{display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 2px;border-radius:8px;color:var(--band-ink);text-decoration:none;font-size:11px;font-weight:600;background:none;border:0;cursor:pointer;width:100%;font-family:inherit}
+.lat-item svg{width:22px;height:22px}
+.lat-item:hover{background:rgba(255,255,255,.08);color:#fff}
+.lat-item.on{background:rgba(255,255,255,.14);color:#fff}
+.lat-pie{display:flex;flex-direction:column;align-items:center;gap:4px;width:100%;border-top:1px solid rgba(255,255,255,.12);padding-top:10px}
+.lat-av{width:34px;height:34px;border-radius:50%;background:rgba(255,255,255,.14);color:#fff;display:grid;place-items:center;font-size:12px;font-weight:700}
+.contenido{min-width:0}
+.contenido .who{display:none}
+.contenido .gridwrap{max-height:calc(100vh - 300px)}
+@media (max-width:720px){
+  #app.con-lateral{grid-template-columns:1fr}
+  .lateral{position:sticky;top:0;height:auto;flex-direction:row;padding:6px 8px;padding-top:calc(6px + env(safe-area-inset-top,0px));overflow-x:auto}
+  .lat-logo{border:0;padding:0 6px 0 0;width:auto}
+  .logo-lat{width:38px}
+  .lat-nav{flex-direction:row;flex:1}
+  .lat-pie{flex-direction:row;border:0;padding:0;width:auto}
+  .lat-item{width:auto;min-width:56px}
+  .lat-av{display:none}
+}
