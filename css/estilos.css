@@ -438,3 +438,33 @@ a.mod-card.carpeta .mod-body h2::before{content:"";display:inline-block;width:16
 .grid2 h3{margin:0 0 8px;font-size:15px}
 .dem details.cargas summary{cursor:pointer;font-weight:600}
 @media (max-width:720px){.charts,.grid2{grid-template-columns:1fr}}
+
+/* ---- Seguimiento de la demanda: paneles tipo cuadro de mando ---- */
+:root{--dem:#9E2F72;--dem-soft:#F6EAF1}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--dem:#C45A98;--dem-soft:#2F1F29}}
+:root[data-theme="dark"]{--dem:#C45A98;--dem-soft:#2F1F29}
+.panels{display:grid;grid-template-columns:repeat(auto-fit,minmax(560px,1fr));gap:16px;margin:6px 0 10px}
+@media (max-width:720px){.panels{grid-template-columns:1fr}}
+.dpanel{background:var(--surface);border:1px solid var(--line-strong);display:flex;flex-direction:column;min-width:0}
+.dpanel>header{background:var(--dem);color:#fff;padding:6px 12px;display:flex;gap:10px;align-items:baseline;border-bottom:3px solid var(--ink)}
+.dpanel>header span{font-weight:700;text-transform:uppercase;font-size:13px;letter-spacing:.02em}
+.dpanel>header b{font-weight:500;font-size:13px;opacity:.9}
+.dwrap{overflow:auto;max-height:420px}
+.dtbl{border-collapse:separate;border-spacing:0;width:100%;font-family:"Barlow Semi Condensed",sans-serif;font-variant-numeric:tabular-nums;font-size:13.5px}
+.dtbl th,.dtbl td{padding:5px 10px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--line)}
+.dtbl th{position:sticky;top:0;background:var(--surface);z-index:1;font-weight:500;color:var(--ink-2);vertical-align:bottom;border-bottom:1px solid var(--ink-3)}
+.dtbl .dl{text-align:left;position:sticky;left:0;background:inherit;border-right:1px solid var(--line-strong);min-width:180px;max-width:320px;overflow:hidden;text-overflow:ellipsis}
+.dtbl thead .dl{background:var(--surface);z-index:2}
+.dtbl tbody tr{background:var(--surface)}
+.dtbl tbody tr:nth-child(even){background:var(--surface-2)}
+.dtbl tbody tr.n1{font-size:13px}
+.dtbl tbody tr.n2,.dtbl tbody tr.n3,.dtbl tbody tr.n4{font-size:12.5px;color:var(--ink-2)}
+.dtbl tbody tr.n0{font-weight:600}
+.dtbl td.neg{color:var(--red)}
+.dtbl td.pc.pos{color:var(--arrive)}
+.dtbl tfoot td{position:sticky;bottom:0;background:var(--surface);font-weight:700;border-top:2px solid var(--ink-3);border-bottom:0}
+.dtbl .exp{border:1px solid var(--line-strong);background:var(--surface);width:18px;height:18px;line-height:14px;padding:0;margin-right:8px;font-size:13px;cursor:pointer;color:var(--ink-2);border-radius:2px;display:inline-block;text-align:center;vertical-align:middle}
+.dtbl .exp.sp{border:0;background:none;cursor:default}
+.dtbl .lab{background:none;border:0;padding:0;font:inherit;color:inherit;cursor:pointer;text-align:left}
+.dtbl button.lab:hover{text-decoration:underline}
+.dtbl .lab.on{background:var(--dem-soft);color:var(--dem);font-weight:700;padding:0 4px;border-radius:3px}

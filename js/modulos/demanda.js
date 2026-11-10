@@ -15,7 +15,7 @@ const MEDIDAS = { importe:"Importe", unidades:"Unidades", pedidos:"Pedidos", cli
 const MES = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
 const COLORES = ["#B9A27A","#7A8C99","#5F7F5A","#2A2927","#C2362B","#0F8A86"];
 
-const F = { anios:null, ytd:true, medida:"importe", gran:"mes", pct:false, tab:"evolucion", dim:"familia", f:{}, ruta:[], lim:200, clienteA:null };
+const F = { anios:null, ytd:true, medida:"importe", gran:"mes", pct:false, tab:"seguimiento", dim:"familia", f:{}, ruta:[], lim:200, abiertos:new Set() };
 const C = new Map();   // caché de consultas
 let INFO = null, infoLoading = false, charts = [];
 
@@ -37,7 +37,7 @@ async function cargarInfo(){
     ]);
     INFO = { anios: i.map(x => x.anio), porAnio: Object.fromEntries(i.map(x => [x.anio, x])), cargas: c.data || [] };
     const ult = i[i.length-1]; INFO.hasta = ult ? ult.hasta : null;
-    if (!F.anios) F.anios = INFO.anios.slice();
+    if (!F.anios) F.anios = INFO.anios.slice(-3);
   } catch(e){ console.error(e); toast("No se han podido cargar los datos de la demanda."); INFO = { anios:[], porAnio:{}, cargas:[] }; }
   infoLoading = false; render();
 }
@@ -51,10 +51,12 @@ const ultAnio = () => Math.max(...F.anios);
 const prevAnio = () => { const a = F.anios.filter(x => x < ultAnio()); return a.length ? Math.max(...a) : null; };
 
 const val = (r, m) => !r ? null : m === "ticket" ? (r.pedidos ? r.importe / r.pedidos : null) : m === "precio" ? (r.unidades ? r.importe / r.unidades : null) : +r[m];
-const fmtVal = (v, m) => v == null || !isFinite(v) ? "" : (m === "importe" ? fmtM(v,"EUR",0) : m === "ticket" || m === "precio" ? fmtM(v,"EUR",2) : fmtN(v, m === "unidades" ? 1 : 0));
+const fmtVal = (v, m) => v == null || !isFinite(v) ? "" : (m === "importe" ? fmtE0(v) + " €" : m === "ticket" || m === "precio" ? fmtM(v,"EUR",2) : fmtN(v, m === "unidades" ? 1 : 0));
 const pct = (a, b) => (a == null || b == null || !b) ? null : (a - b) / Math.abs(b);
 const fmtPct = v => v == null || !isFinite(v) ? "" : (v > 0 ? "+" : "") + (v*100).toLocaleString("es-ES",{maximumFractionDigits:1}) + " %";
 const clsPct = v => v == null ? "" : v > 0.0005 ? "up" : v < -0.0005 ? "down" : "";
+// Miles siempre con punto (también 4 cifras: 4.244), sin decimales
+const fmtE0 = v => { if (v == null || !isFinite(v)) return ""; const n = Math.round(v); return (n < 0 ? "-" : "") + String(Math.abs(n)).replace(/\B(?=(\d{3})+(?!\d))/g, "."); };
 const num = r => Object.fromEntries(Object.entries(r).map(([k,v]) => [k, (k === "clave" || k === "nombre") ? v : (v == null ? v : +v)]));
 
 /* ================= Pantalla ================= */
@@ -70,12 +72,11 @@ export function renderDemanda(app){
   box.append(info);
   // pestañas
   const nav = el("nav","tabs"); nav.style.marginBottom = "12px";
-  for (const [k,t] of [["evolucion","Evolución"],["desglose","Desglose"],["clientes","Clientes"],["cartera","Cartera pendiente"],["lineas","Detalle de líneas"]]){
+  for (const [k,t] of [["seguimiento","Seguimiento de la demanda"],["clientes","Clientes"],["cartera","Cartera pendiente"],["lineas","Detalle de líneas"]]){
     const a = el("a",null,t); a.href = "#demanda"; if (F.tab === k) a.setAttribute("aria-current","page"); a.addEventListener("click", e => { e.preventDefault(); F.tab = k; render(); }); nav.append(a); }
   box.append(nav);
   if (F.tab !== "cartera") controles(box);
-  if (F.tab === "evolucion") tabEvolucion(box);
-  else if (F.tab === "desglose") tabDesglose(box);
+  if (F.tab === "seguimiento") tabSeguimiento(box);
   else if (F.tab === "clientes") tabClientes(box);
   else if (F.tab === "cartera") tabCartera(box);
   else tabLineas(box);
@@ -85,10 +86,11 @@ export function renderDemanda(app){
 /* ---------------- Controles comunes ---------------- */
 function seg(opts, v, on){ const s = el("div","seg"); for (const [k,l] of opts){ const b = el("button",null,l); b.type = "button"; b.setAttribute("aria-pressed", String(k === v)); b.addEventListener("click", () => on(k)); s.append(b); } return s; }
 function opcionesDim(dim){
-  const e = cached("opt|"+dim, () => rpc("demanda_desglose", { p:{ anios: INFO.anios }, dim }));
-  if (!e.data) return [];
-  const m = new Map(); for (const r of e.data){ if (r.clave == null) continue; const x = m.get(r.clave) || { v:r.clave, nombre:r.nombre, imp:0 }; x.imp += +r.importe || 0; if (r.nombre) x.nombre = r.nombre; m.set(r.clave, x); }
-  return [...m.values()].sort((a,b) => b.imp - a.imp).map(x => ({ v:x.v, l: dim === "top" ? (x.v === "1" ? "Clientes TOP" : "Resto de clientes") : (x.nombre ? (dim === "articulo" ? `${x.v}` : `${x.nombre}`) : x.v), sub: dim === "cliente" ? x.v : dim === "articulo" ? x.nombre : fmtM(x.imp,"EUR",0) }));
+  const e = cached("opt|"+dim, () => rpc("demanda_opciones", { dim }));
+  if (!e.data) return e.loading ? [{ v:"__", l:"Cargando…", sub:"" }] : [];
+  return e.data.filter(x => x.clave != null).map(x => ({ v:x.clave,
+    l: dim === "top" ? (x.clave === "1" ? "Clientes TOP" : "Resto de clientes") : dim === "articulo" ? x.clave : (x.nombre || x.clave),
+    sub: dim === "cliente" ? x.clave : dim === "articulo" ? (x.nombre || "") : fmtN(+x.importe, 0) }));
 }
 function controles(box){
   const c = el("div","ctrl");
@@ -97,13 +99,14 @@ function controles(box){
     b.addEventListener("click", () => { const s = new Set(F.anios); s.has(y) ? s.delete(y) : s.add(y); if (!s.size) return; F.anios = [...s].sort(); render(); }); an.append(b); }
   c.append(fld("Años", an));
   c.append(fld("Comparar", seg([["ytd",`Hasta el ${hastaMD().split("-").reverse().join("/")}`],["full","Año completo"]], F.ytd ? "ytd" : "full", v => { F.ytd = v === "ytd"; render(); })));
-  c.append(fld("Medida", seg(Object.entries(MEDIDAS), F.medida, v => { F.medida = v; render(); })));
-  if (F.tab === "evolucion") c.append(fld("Periodo", seg([["mes","Mes"],["trimestre","Trimestre"],["semana","Semana"]], F.gran, v => { F.gran = v; render(); })));
+  c.append(fld("Medida", seg(Object.entries(F.tab === "seguimiento" ? { importe:"Importe", unidades:"Unidades", pedidos:"Pedidos", clientes:"Clientes" } : MEDIDAS), F.medida, v => { F.medida = v; render(); })));
+
   box.append(c);
   // filtros
   const fb = el("div","ctrl fil");
   for (const k of FILTROS){
-    const opts = opcionesDim(k);
+    const abierto = ctx.ui.dd === "dem-"+k;
+    const opts = abierto ? opcionesDim(k) : (F.f[k] || []).map(v => ({ v, l: etiquetaFiltro(k, v) }));
     fb.append(ddMulti(ctx.ui, "dem-"+k, DIMS[k], opts, F.f[k] || [], n => { F.f[k] = n; F.ruta = F.ruta.filter(r => r.dim !== k); render(); }, render));
   }
   const act = FILTROS.filter(k => F.f[k] && F.f[k].length);
@@ -126,97 +129,99 @@ function kpis(box){
   box.append(k);
 }
 
-/* ---------------- Evolución ---------------- */
-function etiquetaPeriodo(g, p){ return g === "mes" ? MES[p-1] : g === "trimestre" ? "T"+p : "S"+String(p).padStart(2,"0"); }
-function tabEvolucion(box){
-  kpis(box);
-  const e = cached("serie|"+F.gran+"|"+JSON.stringify(params()), () => rpc("demanda_serie", { p: params(), gran:F.gran }));
-  if (e.loading){ box.append(el("div","card empty","Calculando…")); return; }
-  if (e.error){ box.append(el("div","card empty","No se ha podido calcular la serie.")); return; }
-  const rows = e.data.map(num), m = F.medida;
-  const periodos = [...new Set(rows.map(r => r.periodo))].sort((x,y) => x-y);
-  const anios = F.anios.filter(y => rows.some(r => r.anio === y));
-  const get = (y,p) => rows.find(r => r.anio === y && r.periodo === p);
-  const totAnio = y => rows.filter(r => r.anio === y).reduce((s,r) => s + (val(r, m === "ticket" || m === "precio" ? "importe" : m) || 0), 0);
-  const v = (y,p) => { const x = val(get(y,p), m); return F.pct && !["ticket","precio"].includes(m) && x != null ? x / (totAnio(y) || 1) : x; };
-  const opt = el("label","chk"); const cb = el("input"); cb.type = "checkbox"; cb.checked = F.pct; cb.addEventListener("change", () => { F.pct = cb.checked; render(); }); opt.append(cb, " Ver cada periodo como % del total del año (estacionalidad)"); box.append(opt);
-  // gráficos
-  const g = el("div","charts");
-  const c1 = el("div","card chartcard"); c1.append(el("h3",null, `${MEDIDAS[m]} por ${F.gran === "mes" ? "mes" : F.gran}`)); const cv1 = el("canvas"); c1.append(cv1); g.append(c1);
-  const c2 = el("div","card chartcard"); c2.append(el("h3",null,"Acumulado del año")); const cv2 = el("canvas"); c2.append(cv2); g.append(c2);
-  box.append(g);
-  const labels = periodos.map(p => etiquetaPeriodo(F.gran, p));
-  const ds = (fn) => anios.map((y,i) => ({ label:String(y), data: periodos.map(p => fn(y,p)), borderColor:COLORES[(anios.length-1-i)%COLORES.length], backgroundColor:COLORES[(anios.length-1-i)%COLORES.length], borderWidth: y === ultAnio() ? 3 : 1.6, pointRadius: F.gran === "semana" ? 0 : 2.5, tension:.25 }));
-  const fmtT = x => F.pct ? fmtPct(x).replace("+","") : fmtVal(x, m);
-  setTimeout(() => {
-    if (!window.Chart) return;
-    const opts = { responsive:true, maintainAspectRatio:false, interaction:{ mode:"index", intersect:false }, plugins:{ legend:{ position:"bottom" }, tooltip:{ callbacks:{ label: c => `${c.dataset.label}: ${fmtT(c.parsed.y)}` } } }, scales:{ y:{ ticks:{ callback: x => fmtT(x) } } } };
-    charts.push(new Chart(cv1, { type:"line", data:{ labels, datasets: ds(v) }, options: opts }));
-    if (!["ticket","precio"].includes(m)){
-      const acum = (y,p) => periodos.filter(q => q <= p).reduce((s,q) => s + (val(get(y,q), m) || 0), 0);
-      charts.push(new Chart(cv2, { type:"line", data:{ labels, datasets: ds(acum) }, options: Object.assign({}, opts, { plugins:{ legend:{ position:"bottom" }, tooltip:{ callbacks:{ label: c => `${c.dataset.label}: ${fmtVal(c.parsed.y, m)}` } } }, scales:{ y:{ ticks:{ callback: x => fmtVal(x, m) } } } }) }));
-    } else c2.remove();
-  }, 0);
-  // tabla
-  const a = ultAnio(), b = prevAnio();
-  const tw = el("div","tblwrap"); const t = el("table","tbl pivot");
-  const hr = el("tr"); hr.append(el("th",null,"Periodo")); for (const y of anios) hr.append(el("th","n",String(y))); if (b) hr.append(el("th","n",`${a} vs ${b}`));
-  const th = el("thead"); th.append(hr); t.append(th);
-  const tb = el("tbody");
-  for (const p of periodos){ const tr = el("tr"); tr.append(el("td",null,etiquetaPeriodo(F.gran,p))); for (const y of anios) tr.append(el("td","n", F.pct ? fmtPct(v(y,p)).replace("+","") : fmtVal(v(y,p), m)));
-    if (b){ const d = pct(val(get(a,p),m), val(get(b,p),m)); tr.append(el("td","n "+clsPct(d), fmtPct(d))); } tb.append(tr); }
-  t.append(tb); tw.append(t); box.append(tw);
-  F._export = () => { const A = [["Periodo", ...anios.map(String)]]; for (const p of periodos) A.push([etiquetaPeriodo(F.gran,p), ...anios.map(y => { const x = v(y,p); return x == null ? "" : Math.round(x*100)/100; })]); return { "Evolución": A }; };
-  exportar(box);
+/* ---------------- Seguimiento de la demanda (paneles) ---------------- */
+const MESES_L = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
+const DIAS_L = ["lunes","martes","miércoles","jueves","viernes","sábado","domingo"];
+// Paneles: cada uno es una jerarquía desplegable
+const PANELES = [
+  { id:"uen",   titulo:"UEN",              niveles:["uen","familia","producto","articulo","config"] },
+  { id:"mes",   titulo:"Mes",              niveles:["mes","semana","dow"] },
+  { id:"pais",  titulo:"País",             niveles:["pais","provincia","cliente"] },
+  { id:"tipo",  titulo:"Tipo de cliente",  niveles:["tipo_cliente","cliente"] },
+  { id:"deleg", titulo:"Delegado",         niveles:["delegado","cliente"] },
+  { id:"grupo", titulo:"Agente / grupo comercial", niveles:["grupo","cliente"] },
+];
+function etiquetaFiltro(k, v){
+  if (k === "top") return v === "1" ? "Clientes TOP" : "Resto de clientes";
+  const e = C.get("opt|"+k); const x = e && e.data && e.data.find(o => o.clave === v);
+  return x && x.nombre && k !== "articulo" ? x.nombre : v;
+}
+// Filas de un nivel: [{clave, nombre, y:{anio:fila}}]
+function datosNivel(dim, extra){
+  const p = params(extra);
+  if (["mes","semana","dow"].includes(dim)){
+    const e = cached("ser|"+dim+"|"+JSON.stringify(p), () => rpc("demanda_serie", { p, gran: dim }));
+    if (!e.data) return e;
+    const m = new Map(); for (const r0 of e.data){ const r = num(r0); const k = String(r.periodo); const x = m.get(k) || { clave:k, y:{} }; x.y[r.anio] = r; m.set(k, x); }
+    const filas = [...m.values()].sort((x,y) => +x.clave - +y.clave);
+    for (const f of filas) f.nombre = dim === "mes" ? MESES_L[+f.clave-1] : dim === "semana" ? "Semana " + f.clave : DIAS_L[+f.clave-1];
+    return { data: filas };
+  }
+  const e = cached("des|"+dim+"|"+JSON.stringify(p), () => rpc("demanda_desglose", { p, dim }));
+  if (!e.data) return e;
+  const m = new Map(); for (const r0 of e.data){ const r = num(r0); const k = r.clave ?? ""; const x = m.get(k) || { clave:k, nombre:r.nombre, y:{} }; x.y[r.anio] = r; if (r.nombre) x.nombre = r.nombre; m.set(k, x); }
+  const a = ultAnio(), b = prevAnio(), mm = F.medida;
+  const filas = [...m.values()].sort((x,y) => (val(y.y[a], mm) || 0) - (val(x.y[a], mm) || 0) || (val(y.y[b], mm) || 0) - (val(x.y[b], mm) || 0));
+  for (const f of filas){ if (dim === "top") f.nombre = f.clave === "1" ? "Clientes TOP" : "Resto de clientes"; else if (dim === "cliente") f.nombre = `${f.nombre || ""} (${f.clave})`; else if (dim === "articulo") f.nombre = `${f.clave} · ${f.nombre || ""}`; else if (dim === "grupo") f.nombre = f.nombre || f.clave; else f.nombre = f.clave || "(sin dato)"; }
+  return { data: filas };
 }
 
-/* ---------------- Desglose ---------------- */
-function tabDesglose(box){
+const fmtP2 = v => v == null || !isFinite(v) ? "" : (v*100).toLocaleString("es-ES",{minimumFractionDigits:2,maximumFractionDigits:2}) + " %";
+function tabSeguimiento(box){
   kpis(box);
-  const c = el("div","ctrl");
-  const s = el("select"); for (const [k,l] of Object.entries(DIMS)){ const o = el("option",null,l); o.value = k; s.append(o); } s.value = F.dim;
-  s.addEventListener("change", () => { F.dim = s.value; render(); });
-  const lb = el("label","fld"); lb.append("Agrupar por", s); c.append(lb);
-  if (F.ruta.length){ const r = el("div","ruta"); r.append(el("span",null,"Camino: "));
-    F.ruta.forEach((x,i) => { const a = el("button","btn small", `${DIMS[x.dim]}: ${x.label}`); a.title = "Volver a este nivel"; a.addEventListener("click", () => { for (const y of F.ruta.slice(i)) delete F.f[y.dim]; F.dim = x.dim; F.ruta = F.ruta.slice(0,i); render(); }); r.append(a); });
-    c.append(r); }
-  box.append(c);
-  box.append(el("p","hint","Pulsa una fila para filtrar por ella y bajar al siguiente nivel (por ejemplo, UEN › Familia › Producto › Artículo › Acabado, o Zona › País › Provincia › Cliente)."));
-  const e = cached("des|"+F.dim+"|"+JSON.stringify(params()), () => rpc("demanda_desglose", { p: params(), dim: F.dim }));
-  if (e.loading){ box.append(el("div","card empty","Calculando…")); return; }
-  if (e.error){ box.append(el("div","card empty","No se ha podido calcular el desglose.")); return; }
-  const m = F.medida, a = ultAnio(), b = prevAnio(), anios = F.anios;
-  const map = new Map(); for (const r0 of e.data){ const r = num(r0); const k = r.clave ?? "(sin dato)"; const x = map.get(k) || { clave:k, nombre:r.nombre, y:{} }; x.y[r.anio] = r; if (r.nombre) x.nombre = r.nombre; map.set(k, x); }
-  const filas = [...map.values()].sort((x,y) => (val(y.y[a], m) || 0) - (val(x.y[a], m) || 0) || (val(y.y[b], m) || 0) - (val(x.y[b], m) || 0));
-  const total = filas.reduce((s,f) => s + (val(f.y[a], m === "ticket" || m === "precio" ? "importe" : m) || 0), 0);
-  // gráfico de barras (15 primeros)
-  const cc = el("div","card chartcard"); cc.append(el("h3",null, `${MEDIDAS[m]} por ${DIMS[F.dim].toLowerCase()}: ${b ? b+" y " : ""}${a} (15 primeros)`)); const cv = el("canvas"); cc.append(cv); cc.style.height = "360px"; box.append(cc);
-  const top = filas.slice(0,15), lab = f => (f.nombre && F.dim !== "articulo" ? f.nombre : f.clave) + (F.dim === "articulo" && f.nombre ? " · " + f.nombre.slice(0,28) : "");
-  setTimeout(() => { if (!window.Chart) return; charts.push(new Chart(cv, { type:"bar", data:{ labels: top.map(lab), datasets: [b,a].filter(Boolean).map((y,i) => ({ label:String(y), data: top.map(f => val(f.y[y], m)), backgroundColor: i ? "#B9A27A" : "#C9C3B8" })) },
-    options:{ indexAxis:"y", responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:"bottom" }, tooltip:{ callbacks:{ label: c => `${c.dataset.label}: ${fmtVal(c.parsed.x, m)}` } } }, scales:{ x:{ ticks:{ callback: x => fmtVal(x, m) } } } } })); }, 0);
-  // tabla
-  const tw = el("div","tblwrap"); tw.style.maxHeight = "70vh"; const t = el("table","tbl pivot");
-  const hr = el("tr"); hr.append(el("th","code",DIMS[F.dim])); if (["cliente","articulo","grupo"].includes(F.dim)) hr.append(el("th",null,"Nombre"));
-  for (const y of anios) hr.append(el("th","n",String(y))); if (b) hr.append(el("th","n",`${a} vs ${b}`)); hr.append(el("th","n",`% ${a}`), el("th","n","% acumulado"));
-  const th = el("thead"); th.append(hr); t.append(th);
-  const tb = el("tbody"); let acum = 0; const sig = SIGUIENTE[F.dim];
-  for (const f of filas){
-    const tr = el("tr"); const va = val(f.y[a], m === "ticket" || m === "precio" ? "importe" : m) || 0; acum += va;
-    tr.append(el("td","code", F.dim === "top" ? (f.clave === "1" ? "Clientes TOP" : "Resto") : (["cliente","articulo","grupo"].includes(F.dim) ? f.clave : (f.nombre || f.clave))));
-    if (["cliente","articulo","grupo"].includes(F.dim)) tr.append(el("td",null,f.nombre || ""));
-    for (const y of anios) tr.append(el("td","n",fmtVal(val(f.y[y], m), m)));
-    if (b){ const d = pct(val(f.y[a],m), val(f.y[b],m)); tr.append(el("td","n "+clsPct(d), f.y[b] && !f.y[a] ? "−100 %" : !f.y[b] && f.y[a] ? "nuevo" : fmtPct(d))); }
-    tr.append(el("td","n", total ? fmtPct(va/total).replace("+","") : ""), el("td","n", total ? fmtPct(acum/total).replace("+","") : ""));
-    if (FILTROS.includes(F.dim) || F.dim === "provincia" || F.dim === "origen"){
-      tr.title = sig ? `Filtrar por esta fila y ver ${DIMS[sig].toLowerCase()}` : "Filtrar por esta fila"; tr.style.cursor = "pointer";
-      tr.addEventListener("click", () => { F.f[F.dim] = [f.clave]; F.ruta.push({ dim:F.dim, label: (F.dim === "cliente" || F.dim === "grupo") ? (f.nombre || f.clave) : F.dim === "top" ? (f.clave === "1" ? "TOP" : "Resto") : (f.nombre && F.dim !== "articulo" ? f.nombre : f.clave) }); if (sig) F.dim = sig; render(); });
-    }
-    tb.append(tr);
-  }
-  t.append(tb); tw.append(t); box.append(tw);
-  box.append(el("p","hint",`${filas.length} ${DIMS[F.dim].toLowerCase()}${filas.length === 1 ? "" : "s"}. «% acumulado» muestra la concentración: hasta qué fila se alcanza el 80 % de ${MEDIDAS[m].toLowerCase()}.`));
-  F._export = () => { const A = [[DIMS[F.dim], "Nombre", ...anios.map(String), b ? `${a} vs ${b}` : ""]]; for (const f of filas) A.push([f.clave, f.nombre || "", ...anios.map(y => { const x = val(f.y[y], m); return x == null ? "" : Math.round(x*100)/100; }), b ? (pct(val(f.y[a],m), val(f.y[b],m)) ?? "") : ""]); return { [DIMS[F.dim]]: A }; };
+  const act = FILTROS.filter(k => F.f[k] && F.f[k].length);
+  box.append(el("p","hint", "Pulsa ⊞ para desplegar un nivel y el nombre de una fila para filtrar todo el panel de control por ella (vuelve a pulsar para quitar el filtro)." + (act.length ? "" : "")));
+  const g = el("div","panels");
+  for (const P of PANELES) g.append(panel(P));
+  box.append(g);
+  F._export = () => { const out = {}; for (const P of PANELES){ const d = datosNivel(P.niveles[0]); if (d.data) out[P.titulo] = filasExport(P, d.data); } return out; };
   exportar(box);
+}
+function columnas(){ const ys = F.anios.slice().sort((x,y) => y-x); const a = ys[0]; return { ys, a, comp: ys.slice(1) }; }
+function filasExport(P, filas){
+  const { ys, a, comp } = columnas(), m = F.medida;
+  const H = [P.titulo, ...ys.map(String)]; for (const b of comp) H.push(`${a} − ${b}`, `% ${a} vs ${b}`);
+  return [H, ...filas.map(f => { const r = [f.nombre]; for (const y of ys) r.push(Math.round(val(f.y[y], m) || 0)); for (const b of comp){ const va = val(f.y[a], m) || 0, vb = val(f.y[b], m) || 0; r.push(Math.round(va - vb), vb ? (va - vb)/Math.abs(vb) : ""); } return r; })];
+}
+function panel(P){
+  const card = el("section","dpanel"); const h = el("header",null); h.append(el("span",null,"Seguimiento demanda"), el("b",null,P.titulo)); card.append(h);
+  const { ys, a, comp } = columnas(), m = F.medida;
+  const wrap = el("div","dwrap"); const t = el("table","dtbl");
+  const th = el("thead"), hr = el("tr"); hr.append(el("th","dl",P.titulo));
+  for (const y of ys) hr.append(el("th",null,String(y)));
+  for (const b of comp){ hr.append(el("th",null,`${a} − ${b}`), el("th",null,`% ${a} vs ${b}`)); }
+  th.append(hr); t.append(th);
+  const tb = el("tbody");
+  const pintar = (dim, extra, nivel, ruta) => {
+    const d = datosNivel(dim, extra);
+    if (!d.data){ const tr = el("tr"); const td = el("td","dl",d.error ? "No se ha podido calcular" : "Cargando…"); td.style.paddingLeft = (10 + nivel*18) + "px"; td.colSpan = 1 + ys.length + comp.length*2; tr.append(td); tb.append(tr); return; }
+    const sig = P.niveles[nivel+1];
+    for (const f of d.data){
+      const key = P.id + "|" + ruta.concat(f.clave).join("¦"); const abierto = F.abiertos.has(key);
+      const tr = el("tr", "n"+nivel); const td = el("td","dl"); td.style.paddingLeft = (8 + nivel*18) + "px";
+      if (sig){ const bt = el("button","exp", abierto ? "⊟" : "⊞"); bt.type = "button"; bt.title = abierto ? "Plegar" : "Desplegar"; bt.addEventListener("click", ev => { ev.stopPropagation(); abierto ? F.abiertos.delete(key) : F.abiertos.add(key); render(); }); td.append(bt); }
+      else td.append(el("span","exp sp",""));
+      const dimF = dim === "mes" ? null : dim === "semana" || dim === "dow" ? null : dim;
+      const lab = el(dimF ? "button" : "span", "lab" + (dimF && F.f[dimF] && F.f[dimF].includes(f.clave) ? " on" : ""), f.nombre);
+      if (dimF){ lab.type = "button"; lab.title = "Filtrar todo por " + f.nombre; lab.addEventListener("click", () => { const cur = F.f[dimF] || []; F.f[dimF] = cur.includes(f.clave) ? cur.filter(x => x !== f.clave) : [...cur, f.clave]; render(); }); }
+      td.append(lab); tr.append(td);
+      for (const y of ys) tr.append(el("td",null, fmtE0(val(f.y[y], m))));
+      for (const b of comp){ const va = val(f.y[a], m), vb = val(f.y[b], m); const dif = (va || 0) - (vb || 0); const pc = vb ? dif / Math.abs(vb) : null;
+        tr.append(el("td", dif < 0 ? "neg" : "", fmtE0(dif)), el("td", "pc " + (pc == null ? "" : pc < 0 ? "neg" : "pos"), vb ? fmtP2(pc) : (va ? "nuevo" : ""))); }
+      tb.append(tr);
+      if (abierto && sig){ const ex = Object.assign({}, extra); const fk = dim === "mes" ? "meses" : dim === "semana" ? "semanas" : dim; ex[fk] = [dim === "mes" || dim === "semana" ? +f.clave : f.clave]; pintar(sig, ex, nivel+1, ruta.concat(f.clave)); }
+    }
+  };
+  pintar(P.niveles[0], {}, 0, []);
+  t.append(tb);
+  // total
+  const e = cached("serie|anio|"+JSON.stringify(params()), () => rpc("demanda_serie", { p: params(), gran:"anio" }));
+  if (e.data){ const by = Object.fromEntries(e.data.map(r => [r.anio, num(r)])); const tf = el("tfoot"), fr = el("tr"); fr.append(el("td","dl","Total"));
+    for (const y of ys) fr.append(el("td",null,fmtE0(val(by[y], m))));
+    for (const b of comp){ const va = val(by[a], m), vb = val(by[b], m); const dif = (va||0) - (vb||0); fr.append(el("td", dif < 0 ? "neg" : "", fmtE0(dif)), el("td","pc " + (dif < 0 ? "neg" : "pos"), vb ? fmtP2(dif/Math.abs(vb)) : "")); }
+    tf.append(fr); t.append(tf); }
+  wrap.append(t); card.append(wrap);
+  return card;
 }
 
 /* ---------------- Clientes ---------------- */
