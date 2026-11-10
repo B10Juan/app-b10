@@ -34,7 +34,7 @@ async function cargarLineas(cod){
 
 export function renderCompras(app){
   document.title = "Compras: análisis por proveedor";
-  cabecera(app, "Compras", "Análisis de las facturas de compra.", true, "compras");
+  cabecera(app, "Compras", "Análisis de las facturas de compra.", { txt:"Operaciones", href:"#operaciones" }, "compras");
   pestanas(app, "compras");
   const box = el("div","pad"); box.style.paddingBottom = "32px"; app.append(box);
   if (!D.provs){ if (!D.cargandoProvs) cargarProveedores(); box.append(el("div","card empty","Cargando proveedores…")); return; }
@@ -198,7 +198,7 @@ async function cargarLineasRef(item){
 
 export function renderComprasRef(app){
   document.title = "Compras: análisis por referencia";
-  cabecera(app, "Compras", "Análisis de las facturas de compra.", true, "compras");
+  cabecera(app, "Compras", "Análisis de las facturas de compra.", { txt:"Operaciones", href:"#operaciones" }, "compras");
   pestanas(app, "compras-ref");
   const box = el("div","pad"); box.style.paddingBottom = "32px"; app.append(box);
   if (!DR.arts){ if (!DR.cargandoArts) cargarArticulos(); box.append(el("div","card empty","Cargando artículos…")); return; }

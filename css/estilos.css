@@ -415,3 +415,8 @@ dialog .actions{justify-content:flex-start;flex-wrap:wrap}
 dialog .actions #manDel{margin-right:0 !important;order:3;margin-left:auto}
 .toast{bottom:calc(76px + env(safe-area-inset-bottom,0px))}
 .contenido .plan-frame{height:calc(100vh - 8px)}
+
+/* Carpetas de la pantalla inicial */
+a.mod-card.carpeta .mod-body{border-top-color:var(--hi,#B9A27A)}
+a.mod-card.carpeta .mod-body h2::before{content:"";display:inline-block;width:16px;height:12px;margin-right:8px;border:2px solid currentColor;border-radius:2px 2px 3px 3px;border-top-width:4px;vertical-align:1px;opacity:.7}
+:root{--hi:#B9A27A}

@@ -23,9 +23,19 @@ export const puedeEditar = modulo => nivel(modulo) === "editar";
 const MODULOS = [
   { codigo:"compras",      ruta:"compras",  titulo:"Compras", texto:"Dashboard de facturas de proveedores: análisis por proveedor y artículo, unidades, precios medios e importes.", clase:"buy", listo:true },
   { codigo:"planificador", ruta:"planificador", titulo:"Planificador de compras", texto:"Revisión de artículos por proveedor, pedidos lanzados y previsión de pagos de importaciones.", clase:"", listo:true, tambien:"pagos" },
-  { codigo:"plan_accion",  ruta:"plan",     titulo:"Plan de Acción del P.E.", texto:"Seguimiento del plan estratégico: líneas estratégicas, acciones clave, actividades y tareas, con responsables, estados, calendario y cronograma.", listo:true },
+  { codigo:"plan_accion",  ruta:"plan",     titulo:"Plan Estratégico", texto:"Seguimiento del plan estratégico: líneas estratégicas, acciones clave, actividades y tareas, con responsables, estados, calendario y cronograma.", listo:true },
   { codigo:"crm",          ruta:null,       titulo:"CRM de clientes", texto:"Información de clientes para los delegados.", listo:false },
 ];
+
+// Primer nivel de la pantalla inicial: módulos sueltos y carpetas que agrupan módulos
+const INICIO = [
+  { tipo:"modulo",  codigo:"plan_accion" },
+  { tipo:"carpeta", id:"operaciones", titulo:"Operaciones", texto:"Compras y planificación de las compras de importación.", hijos:["compras","planificador"] },
+  { tipo:"usuarios" },
+  { tipo:"carpeta", id:"comercial",   titulo:"Comercial",   texto:"Clientes y equipo comercial.", hijos:["crm"] },
+];
+const carpetaDe = codigo => INICIO.find(x => x.tipo === "carpeta" && x.hijos.includes(codigo));
+const visible = m => (m.listo && (nivel(m.codigo) || (m.tambien && nivel(m.tambien)))) || (!m.listo && isAdmin());
 
 function route(){ const h = decodeURIComponent(location.hash.replace(/^#/,"")); return h || "inicio"; }
 let rq = false;
@@ -56,6 +66,7 @@ function draw(){
   else if (r === "pagos" && nivel("pagos")) renderPlanificador(app, r);
   else if (r === "usuarios" && isAdmin()) renderUsuarios(app);
   else if (r === "plan" && nivel("plan_accion")) drawPlan(app);
+  else if (INICIO.some(x => x.tipo === "carpeta" && x.id === r)) drawCarpeta(app, r);
   else drawInicio(app);
   if (aeKey){ const n = document.querySelector(`[data-k="${CSS.escape(aeKey)}"]`); if (n) n.focus(); }
   window.scrollTo(sx, sy);
@@ -64,7 +75,7 @@ function draw(){
 
 export function cabecera(app, titulo, sub, volver, modulo){
   const h = el("header","top pad"), b = el("div","brand");
-  if (volver){ const bk = el("a","back","‹ APP B10"); bk.href = "#"; b.append(bk); }
+  if (volver){ const v = typeof volver === "object" ? volver : { txt:"APP B10", href:"#" }; const bk = el("a","back","‹ " + v.txt); bk.href = v.href; b.append(bk); }
   const h1 = el("h1",null,titulo); b.append(h1); if (sub) b.append(el("p",null,sub));
   if (modulo && nivel(modulo) === "ver"){ const t = el("span","tag neutral","Solo visualización: puedes consultar y filtrar, pero no modificar datos"); t.style.display = "inline-block"; t.style.marginTop = "6px"; b.append(t); }
   const w = el("div","who"); w.append(el("span",null,(ctx.me.nombre || ctx.session.user.email) + (isAdmin() ? " (administrador)" : "")));
@@ -73,25 +84,47 @@ export function cabecera(app, titulo, sub, volver, modulo){
   w.append(pwb, out); h.append(b, w); app.append(h);
 }
 
-function drawInicio(app){
-  document.title = "APP B10: Gestión";
-  const h = el("header","top pad hero"), b = el("div","brand marca"); const lg = el("a"); lg.href = "#"; lg.append(logo("logo-hero")); b.append(lg, el("span","lema","gestión"));
+function cabeceraNav(app, lema){
+  const h = el("header","top pad hero"), b = el("div","brand marca"); const lg = el("a"); lg.href = "#"; lg.append(logo("logo-hero")); b.append(lg, el("span","lema",lema));
   const w = el("div","who"); w.append(el("span",null,(ctx.me.nombre || ctx.session.user.email) + (isAdmin() ? " (administrador)" : "")));
   const pwb = el("a","btn small","Contraseña"); pwb.href = "#contrasena"; const out = el("button","btn small","Salir"); out.addEventListener("click", async () => { await sb.auth.signOut(); }); w.append(pwb, out);
   h.append(b, w); app.append(h);
+}
+function tarjetaModulo(m){
+  const a = el("a","mod-card"+(m.clase?" "+m.clase:"")+(m.listo?"":" soon")); if (m.listo) a.href = "#"+m.ruta;
+  a.append(el("h2",null,m.titulo), el("p",null,m.texto));
+  const t = el("div","stats"); t.append(el("span","tag "+(m.listo?"neutral":"pend"), m.listo ? ((nivel(m.codigo)||nivel(m.tambien||""))==="editar"?"Edición":"Visualización") : "Próximamente")); a.append(t);
+  return conImagen(a, m.codigo);
+}
+function drawInicio(app){
+  document.title = "APP B10: Gestión";
+  cabeceraNav(app, "gestión");
   const g = el("div","modules pad"); let n = 0;
-  for (const m of MODULOS){
-    if (m.listo && !nivel(m.codigo) && !(m.tambien && nivel(m.tambien))) continue;
-    if (!m.listo && !isAdmin()) continue;
-    const a = el("a","mod-card"+(m.clase?" "+m.clase:"")+(m.listo?"":" soon")); if (m.listo) a.href = "#"+m.ruta;
-    a.append(el("h2",null,m.titulo), el("p",null,m.texto));
-    const t = el("div","stats"); t.append(el("span","tag "+(m.listo?"neutral":"pend"), m.listo ? ((nivel(m.codigo)||nivel(m.tambien||""))==="editar"?"Edición":"Visualización") : "Próximamente")); a.append(t);
-    g.append(conImagen(a, m.codigo)); n++;
+  for (const it of INICIO){
+    if (it.tipo === "modulo"){ const m = MODULOS.find(x => x.codigo === it.codigo); if (m && visible(m)){ g.append(tarjetaModulo(m)); n++; } }
+    else if (it.tipo === "usuarios"){ if (isAdmin()){ const a = el("a","mod-card usr"); a.href = "#usuarios"; a.append(el("h2",null,"Gestión de usuarios"), el("p",null,"Permisos de consulta o edición de cada persona en cada módulo.")); g.append(conImagen(a, "usuarios")); n++; } }
+    else {
+      const hijos = it.hijos.map(c => MODULOS.find(x => x.codigo === c)).filter(m => m && visible(m)); if (!hijos.length) continue;
+      const listos = hijos.filter(m => m.listo);
+      const a = el("a","mod-card carpeta"+(listos.length?"":" soon")); a.href = "#"+it.id;
+      a.append(el("h2",null,it.titulo), el("p",null,it.texto));
+      const t = el("div","stats"); for (const m of hijos) t.append(el("span","tag "+(m.listo?"neutral":"pend"), m.titulo + (m.listo ? "" : " (próximamente)"))); a.append(t);
+      g.append(conImagen(a, it.id)); n++;
+    }
   }
-  if (isAdmin()){ const a = el("a","mod-card usr"); a.href = "#usuarios"; a.append(el("h2",null,"Gestión de usuarios"), el("p",null,"Permisos de consulta o edición de cada persona en cada módulo.")); g.append(conImagen(a, "usuarios")); n++; }
   if (!n) g.append(el("div","card empty","Todavía no tienes acceso a ningún módulo. Pide a un administrador que te dé permisos."));
   app.append(g);
   app.append(el("p","hint pad",`Versión ${APP_VERSION}`));
+}
+// Pantalla de una carpeta: sus módulos
+function drawCarpeta(app, id){
+  const it = INICIO.find(x => x.id === id); document.title = it.titulo + ": APP B10";
+  cabeceraNav(app, it.titulo.toLowerCase());
+  const sub = el("div","pad"); const bk = el("a","back","‹ APP B10"); bk.href = "#"; sub.append(bk, el("p","secsub",it.texto)); app.append(sub);
+  const g = el("div","modules pad"); let n = 0;
+  for (const c of it.hijos){ const m = MODULOS.find(x => x.codigo === c); if (m && visible(m)){ g.append(tarjetaModulo(m)); n++; } }
+  if (!n) g.append(el("div","card empty","No tienes acceso a ningún módulo de esta carpeta."));
+  app.append(g);
 }
 
 // Banda lateral de las aplicaciones: logo, accesos a los módulos y sesión

@@ -500,7 +500,7 @@ function orderCard(o,sid,c){
 function renderPlanMenu(app){
   document.title="Planificador de compras";
   const h=el("header","top pad hero"); const b=el("div","brand marca"); const lg=el("a"); lg.href="#"; lg.append(logo("logo-hero")); b.append(lg, el("span","lema","planificador de compras")); h.append(b,whoChip()); app.append(h);
-  const sub=el("div","pad"); const bk=el("a","back","‹ APP B10"); bk.href="#"; sub.append(bk, el("p","secsub","Elige qué quieres hacer.")); app.append(sub);
+  const sub=el("div","pad"); const bk=el("a","back","‹ Operaciones"); bk.href="#operaciones"; sub.append(bk, el("p","secsub","Elige qué quieres hacer.")); app.append(sub);
   const g=el("div","modules pad");
   if(perm("compras")!=="ninguno"){const a=el("a","mod-card"); a.href="#proveedores"; a.append(el("h2",null,"Planificador de compras"),el("p",null,"Revisión de artículos para compras y pedidos lanzados, por proveedor."));
     const t=el("div","stats"); let br=0,pe=0; for(const s of state.suppliers){const st=supStats(s._id); br+=st.brk; pe+=st.pend;} if(br) t.append(el("span","tag bad",`${br} artículos con rotura`)); if(pe) t.append(el("span","tag pend",`${pe} entradas sin pedido`)); a.append(t); g.append(a);}

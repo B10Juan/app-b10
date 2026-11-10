@@ -10,8 +10,10 @@ export const MARCA = {
     proveedores:  `${W}/2025/12/bathtubs-collecion-b10-02-1300x750.jpg`,
     pagos:        `${W}/2025/12/shower-collecion-b10-02-1300x750.jpg`,
     plan_accion:  `${W}/2025/12/shower-collecion-b10-01.jpg`,
-    crm:          `${W}/2025/12/washbasins-collecion-b10-01.jpg`,
+    crm:          `${W}/2025/12/shower-collecion-b10-02-1300x750.jpg`,
     usuarios:     `${W}/2025/12/shower-collecion-b10-01.jpg`,
+    operaciones:  `${W}/2025/12/bathtubs-collecion-b10-02-1300x750.jpg`,
+    comercial:    `${W}/2025/12/washbasins-collecion-b10-01.jpg`,
   },
 };
 
