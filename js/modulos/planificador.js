@@ -209,7 +209,7 @@ function renderArticles(app,sid){
   const pendByWeek=new Map(); for(const o of ordersOf(sid)) if(isPend(o)&&Object.keys(o.lines||{}).length) pendByWeek.set(key(od(o,sid).entryW),o);
   const confByWeek=new Map(); for(const o of ordersOf(sid)) if(!isPend(o)){const k=key(od(o,sid).entryW); if(!confByWeek.has(k)) confByWeek.set(k,[]); confByWeek.get(k).push(o);}
   W.forEach((d,i)=>{const h=el("th",i===0?"now":""); h.append(wLabel(d)); h.append(el("small",null,dShort(d)));
-    for(const o of (confByWeek.get(key(d))||[])){const dd=od(o,sid); const tg=el("a","otag"+(o.mod?" m":""),o.ref); tg.href=`#${sid}-pedidos`; tg.setAttribute("aria-label",`Pedido ${o.ref}`);
+    for(const o of (confByWeek.get(key(d))||[])){const dd=od(o,sid); const tg=el("a","otag"+(o.mod?" m":(o.comentarios?" c":"")),o.ref); tg.href=`#${sid}-pedidos`; tg.setAttribute("aria-label",`Pedido ${o.ref}`);
       const tip=el("span","tip"); tip.append(el("b",null,o.ref+"\n"), `CRD: ${o.crd?dLong(parseKey(o.crd)):"sin fecha"}\nETD: ${o.etd?dLong(parseKey(o.etd)):"sin fecha (estimada "+dLong(dd.etd)+")"}\nETA: ${dLong(dd.eta)}\nTamaño: ${sizeLabel(o.tamano)||"sin indicar"}\nNaviera: ${o.naviera||"sin indicar"}\nImporte: ${fmtE2(total(o))}${o.mod?"\nModificación pendiente de validar":""}${o.comentarios?"\n\nComentarios: "+o.comentarios:""}`);
       tg.append(tip); tg.addEventListener("click",()=>{state.expanded.add(o._id); state.ordFilter={sid,peds:[o._id],refs:[]}; state.dd=null;}); h.append(tg);}
     const po=pendByWeek.get(key(d)); if(po&&state.canWrite){const b=el("button","asg","Crear pedido"); b.title="Crear un pedido con todas las entradas pendientes de esta semana"; b.addEventListener("click",()=>openAsg(sid,po)); h.append(b);} hr.append(h);});
