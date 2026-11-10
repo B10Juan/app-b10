@@ -420,3 +420,21 @@ dialog .actions #manDel{margin-right:0 !important;order:3;margin-left:auto}
 a.mod-card.carpeta .mod-body{border-top-color:var(--hi,#B9A27A)}
 a.mod-card.carpeta .mod-body h2::before{content:"";display:inline-block;width:16px;height:12px;margin-right:8px;border:2px solid currentColor;border-radius:2px 2px 3px 3px;border-top-width:4px;vertical-align:1px;opacity:.7}
 :root{--hi:#B9A27A}
+
+/* ---- Análisis de la demanda ---- */
+.dem .ctrl.fil{gap:8px}
+.dem .ctrl.fil .dd .ddb{min-width:0;font-size:13px;padding:5px 10px}
+.dem .seg button{padding:5px 10px;font-size:13px}
+.kpi .delta{display:block;font-size:12.5px;font-weight:600;color:var(--ink-3);margin-top:2px}
+.kpi .delta.up,.tbl td.up{color:var(--arrive)}
+.kpi .delta.down,.tbl td.down{color:var(--red)}
+.charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:14px;margin:10px 0 16px}
+.chartcard{height:340px;display:flex;flex-direction:column;padding:12px 14px}
+.chartcard h3{margin:0 0 8px;font-size:15px}
+.chartcard canvas{flex:1;min-height:0}
+.dem .chk{display:flex;gap:8px;align-items:center;font-size:14px;color:var(--ink-2);margin:4px 0 6px}
+.dem .ruta{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:13px;color:var(--ink-2)}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:14px;margin-top:10px}
+.grid2 h3{margin:0 0 8px;font-size:15px}
+.dem details.cargas summary{cursor:pointer;font-weight:600}
+@media (max-width:720px){.charts,.grid2{grid-template-columns:1fr}}

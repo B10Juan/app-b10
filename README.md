@@ -2,7 +2,7 @@
 
 Aplicación web interna de B10. Los datos viven en Supabase (proyecto B10) y el código en este repositorio.
 
-Versión 0.7.0: **Compras** (análisis de facturas por proveedor y por referencia), **Planificador de compras** (revisión de artículos, pedidos lanzados con versiones y previsión de pagos de importaciones) y **Gestión de usuarios** con contraseñas.
+Versión 0.9.0: **Compras** (análisis de facturas por proveedor y por referencia), **Planificador de compras** (revisión de artículos, pedidos lanzados con versiones y previsión de pagos de importaciones) y **Gestión de usuarios** con contraseñas.
 
 ## Estructura
 
@@ -51,6 +51,13 @@ Cada cambio que se suba a GitHub se publica solo en Netlify en un minuto.
 - Cada usuario puede cambiar su contraseña desde el botón «Contraseña».
 - Permisos por módulo: Sin acceso, Visualización (ver, filtrar y exportar) o Edición. Los aplica la base de datos.
 - Scripts relacionados: supabase/migrations/06_usuarios_con_contrasena.sql
+
+## Comercial · Análisis de la demanda
+
+Diario de pedidos de venta de AX (hoja «AC.Pedidos» del Excel Diario_Demanda_Cartera) en `ax.pedidos_venta_diario`
+y cartera pendiente («CarteraPendiente») en `ax.cartera_pendiente` (migraciones 15 y 16). Las agregaciones se calculan
+en la base de datos con las funciones `comercial.demanda_*`. Para actualizar un año: en el propio módulo,
+«Actualizar datos», eligiendo el Excel de ese año (sustituye ese año y la cartera).
 
 ## Plan de Acción del P.E.
 
