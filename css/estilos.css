@@ -407,3 +407,11 @@ a.mod-card.soon .mod-img img{filter:grayscale(1)}
 /* Plan de Acción del P.E. (app incrustada) */
 .contenido .plan-frame{display:block;width:100%;height:100vh;border:0;background:var(--bg)}
 @media (max-width:720px){.contenido .plan-frame{height:calc(100vh - 64px)}}
+
+/* La esquina inferior derecha la ocupa el distintivo «Powered by Netlify» del plan gratuito:
+   se deja libre para que no tape botones. */
+body{padding-bottom:72px}
+dialog .actions{justify-content:flex-start;flex-wrap:wrap}
+dialog .actions #manDel{margin-right:0 !important;order:3;margin-left:auto}
+.toast{bottom:calc(76px + env(safe-area-inset-bottom,0px))}
+.contenido .plan-frame{height:calc(100vh - 8px)}
