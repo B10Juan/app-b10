@@ -484,15 +484,21 @@ a.mod-card.carpeta .mod-body h2::before{content:"";display:inline-block;width:16
 .rtbl .l{text-align:left}
 .rtbl thead th{position:sticky;background:var(--surface);z-index:3;color:var(--ink-2);font-weight:500;font-size:11.5px;line-height:1.2;vertical-align:bottom}
 .rtbl thead tr.grp th{top:0;height:24px;padding-top:8px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-3);text-align:left}
-.rtbl thead tr.grp th.gs{box-shadow:inset 0 -2px 0 var(--line-strong);padding-left:14px}
+.rtbl thead tr.grp th.gs{padding-left:16px}
+.rtbl thead tr.grp th.gs::after{content:"";position:absolute;left:16px;right:10px;bottom:0;height:2px;background:var(--line-strong);border-radius:1px}
 .rtbl thead tr:not(.grp) th{top:32px;padding-top:6px;padding-bottom:8px;box-shadow:inset 0 -1px 0 var(--line-strong)}
 .rtbl thead th small{font-size:10.5px;color:var(--ink-3);font-weight:400}
 .rtbl .gsl{padding-left:16px}
 .rtbl .fix{position:sticky;background:var(--surface);z-index:2}
 .rtbl thead .fix{z-index:4}
-.rtbl .f1{left:0;min-width:118px}
-.rtbl .f2{left:118px;min-width:190px;max-width:220px;box-shadow:inset -1px 0 0 var(--line)}
-.rtbl td.f1[colspan="2"]{box-shadow:inset -1px 0 0 var(--line)}
+/* columnas fijas con ancho exacto, para que la línea vertical quede alineada en todas las filas */
+.rtbl .f1{left:0;width:120px;min-width:120px;max-width:120px;box-sizing:border-box}
+.rtbl .f2{left:120px;width:210px;min-width:210px;max-width:210px;box-sizing:border-box;box-shadow:inset -1px 0 0 var(--line)}
+.rtbl thead tr:not(.grp) th.f2{box-shadow:inset -1px 0 0 var(--line),inset 0 -1px 0 var(--line-strong)}
+.rtbl .f1[colspan="2"]{width:330px;min-width:330px;max-width:330px;box-shadow:inset -1px 0 0 var(--line)}
+.rtbl tr.rsup .f1[colspan="2"]{box-shadow:inset -1px 0 0 var(--line)}
+.rtbl tfoot .f1[colspan="2"]{box-shadow:inset -1px 0 0 var(--line),inset 0 1px 0 var(--line-strong)}
+.rtbl tr.rart td.desc{overflow-wrap:anywhere}
 /* fila de proveedor */
 .rtbl tr.rsup td{background:var(--surface-2);font-weight:600;font-size:13.5px;cursor:pointer;padding-top:9px;padding-bottom:9px;border-top:6px solid var(--surface)}
 .rtbl tr.rsup td.fix{background:var(--surface-2)}
