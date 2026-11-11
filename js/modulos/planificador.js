@@ -162,6 +162,7 @@ function renderHome(app){
     a.append(t); g.append(a);
   }
   app.append(g);
+  resumenProveedores(app);
 }
 const PARAMS=[["plazo","Pedido a puerto","sem"],["transito","Tránsito","sem"],["despacho","Despacho","sem"],["pagoDias","Pago antes de embarque","días"],["cobertura","Cobertura por pedido","sem"]];
 function renderSupHeader(app,r){
@@ -720,6 +721,84 @@ function saveOrder(o){
 function delOrder(o){
   state.orders = state.orders.filter(x => x._id !== o._id); render();
   return enqueue(o._id, async () => { const id = o.dbId || S.idMap[o._id]; if (id) chk(await sb.schema("compras").from("pedidos").delete().eq("id", id)); });
+}
+
+/* ===== Resumen por proveedor: stock de seguridad y stock previsto ===== */
+const RS = { abiertos:new Set(), semanas:12, medida:"uds" };
+// Número con punto de miles (también en 4 cifras) y los decimales indicados como máximo
+const fmtN = (v, d=0) => { if (v == null || !isFinite(v)) return ""; const r = Math.round(v * 10**d) / 10**d; const [e, f] = Math.abs(r).toFixed(d).split("."); const fx = f ? f.replace(/0+$/, "") : ""; return (r < 0 ? "-" : "") + e.replace(/\B(?=(\d{3})+(?!\d))/g, ".") + (fx ? "," + fx : ""); };
+function resumenProveedores(app){
+  const box = el("section","resumen pad");
+  box.append(el("h2","sec","Resumen por proveedor"));
+  box.append(el("p","secsub","Stock de seguridad, su coste y las semanas de venta que cubre, junto al stock previsto semana a semana. Pulsa un proveedor para ver sus artículos y ajustar el stock de seguridad: el cambio se guarda en la planificación de ese proveedor."));
+  const ctl = el("div","toolbar"); ctl.style.padding = "8px 0";
+  const sg = (opts, v, on) => { const s2 = el("div","seg"); for (const [k,l] of opts){ const b = el("button",null,l); b.type = "button"; b.setAttribute("aria-pressed", String(k === v)); b.addEventListener("click", () => on(k)); s2.append(b); } return s2; };
+  const l1 = el("label"); l1.append("Stock previsto en ", sg([["uds","unidades"],["coste","coste"]], RS.medida, v => { RS.medida = v; render(); }));
+  const l2 = el("label"); l2.append("Semanas ", sg([[8,"8"],[12,"12"],[26,"26"],[52,"52"]], RS.semanas, v => { RS.semanas = v; render(); }));
+  const allOpen = el("button","btn small", RS.abiertos.size ? "Plegar todo" : "Desplegar todo");
+  allOpen.addEventListener("click", () => { if (RS.abiertos.size) RS.abiertos.clear(); else for (const s of state.suppliers) if (prodsOf(s._id).length) RS.abiertos.add(s._id); render(); });
+  const ex = el("button","btn small","Exportar a Excel"); ex.addEventListener("click", exportResumen);
+  ctl.append(l1, l2, allOpen, ex); box.append(ctl);
+  const W = weeks(state.suppliers[0] ? state.suppliers[0]._id : "").slice(0, RS.semanas);
+  const sups = state.suppliers.filter(s => prodsOf(s._id).length).sort((a,b) => (a.name||"").localeCompare(b.name||""));
+  const tw = el("div","tblwrap"); tw.style.maxHeight = "75vh"; const t = el("table","tbl rtbl");
+  const th = el("thead"), hr = el("tr");
+  const cols = [["Proveedor / código","l"],["Descripción","l"],["Precio","n"],["Venta media semanal","n"],["Stock seguridad (uds)","n"],["Coste stock seguridad","n"],["Semanas que cubre","n"],["Stock real hoy","n"],["Coste stock hoy","n"]];
+  for (const [x,c] of cols) hr.append(el("th",c,x));
+  for (const w of W) hr.append(el("th","n wk",wLabel(w))); th.append(hr); t.append(th);
+  const tb = el("tbody"); const tot = {};
+  const add = (mon, k, v) => { tot[mon] = tot[mon] || { ss:0, ssc:0, st:0, stc:0, w:new Array(W.length).fill(0) }; if (k === "w") v.forEach((x,i) => tot[mon].w[i] += x); else tot[mon][k] += v; };
+  const cov = (ss, avg) => avg > 0 ? ss / avg : null;
+  const fmtC = (v, mon) => v == null || !isFinite(v) ? "" : fmtN(v, 0) + (mon === "USD" ? " $" : " €");
+  for (const s of sups){
+    const c = cfg(s._id), mon = c.moneda || "EUR", ps = prodsOf(s._id), Ws = weeks(s._id);
+    const rows = ps.map(p => { const r = calc(p, s._id); const idx = W.map(w => Ws.findIndex(x => key(x) === key(w)));
+      return { p, r, prev: idx.map(i => i >= 0 ? r.net[i] : null) }; });
+    const ssU = ps.reduce((a,p) => a + (p.ss || 0), 0), ssC = ps.reduce((a,p) => a + (p.ss || 0) * (p.price || 0), 0);
+    const avg = ps.filter(p => !p.extinguir).reduce((a,p) => a + (p.avg || 0), 0);
+    const stU = ps.reduce((a,p) => a + Math.max(0, p.stock || 0), 0), stC = ps.reduce((a,p) => a + Math.max(0, p.stock || 0) * (p.price || 0), 0);
+    const wk = W.map((_,i) => rows.reduce((a,x) => a + (RS.medida === "coste" ? Math.max(0, x.prev[i] || 0) * (x.p.price || 0) : (x.prev[i] || 0)), 0));
+    add(mon,"ss",ssU); add(mon,"ssc",ssC); add(mon,"st",stU); add(mon,"stc",stC); add(mon,"w",wk);
+    const open = RS.abiertos.has(s._id);
+    const tr = el("tr","rsup"); tr.title = open ? "Plegar" : "Ver los artículos"; tr.addEventListener("click", () => { open ? RS.abiertos.delete(s._id) : RS.abiertos.add(s._id); render(); });
+    const c0 = el("td","l"); c0.append(el("span","exp",open ? "⊟" : "⊞"), el("b",null,s.name)); c0.colSpan = 2;
+    const cv = cov(ssU, avg);
+    tr.append(c0, el("td","n",""), el("td","n",fmtN(avg,2)), el("td","n",fmtN(ssU,0)), el("td","n",fmtC(ssC,mon)), el("td","n"+(cv!=null&&cv<4?" low":""),cv==null?"":fmtN(cv,1)), el("td","n",fmtN(stU,0)), el("td","n",fmtC(stC,mon)));
+    wk.forEach(v => tr.append(el("td","n wk"+(v<0?" neg":""), RS.medida === "coste" ? fmtC(v,mon) : fmtN(v,0))));
+    tb.append(tr);
+    if (!open) continue;
+    for (const x of rows){
+      const p = x.p, r2 = el("tr","rart"+(p.extinguir?" ext":""));
+      r2.append(el("td","l code",dispCode(p)), el("td","l",p.name + (p.extinguir ? " (a extinguir)" : "")), el("td","n",p.price==null?"":fmtM(p.price,mon,2)), el("td","n",p.avg==null?"":fmtN(p.avg,2)));
+      const cs = el("td","n"); const inp = el("input"); inp.value = p.ss == null ? "" : p.ss; inp.inputMode = "decimal"; inp.disabled = !state.canWrite; inp.dataset.k = "rss|"+p._id; inp.setAttribute("aria-label",`Stock de seguridad de ${p.name}`);
+      inp.addEventListener("click", e => e.stopPropagation());
+      inp.addEventListener("change", () => { const v = inp.value.trim() === "" ? null : num(inp.value); if (v != null && (isNaN(v) || v < 0)){ toast("El stock de seguridad debe ser un número igual o mayor que cero"); render(); return; }
+        const np = clone(p); np.ss = v; saveProduct(np); toast(`Stock de seguridad de ${p.name}: ${v ?? "sin dato"}`); });
+      cs.append(inp);
+      const cvp = cov(p.ss || 0, p.avg || 0);
+      r2.append(cs, el("td","n",p.ss==null||p.price==null?"":fmtC(p.ss*p.price,mon)), el("td","n"+(cvp!=null&&cvp<4&&!p.extinguir?" low":""),cvp==null?"":fmtN(cvp,1)), el("td","n"+((p.stock||0)<0?" neg":""),fmtN(p.stock,0)), el("td","n",p.price==null?"":fmtC(Math.max(0,p.stock||0)*p.price,mon)));
+      x.prev.forEach(v => { const td = el("td","n wk"+(v==null?"":v<0?" neg":v<(p.ss||0)?" under":""), v==null?"":(RS.medida === "coste" ? fmtC(Math.max(0,v)*(p.price||0),mon) : fmtN(v,0))); r2.append(td); });
+      tb.append(r2);
+    }
+  }
+  t.append(tb);
+  const tf = el("tfoot");
+  for (const [mon, T] of Object.entries(tot)){ const fr = el("tr"); const c0 = el("td","l",`Total proveedores en ${mon}`); c0.colSpan = 4;
+    fr.append(c0, el("td","n",fmtN(T.ss,0)), el("td","n",fmtC(T.ssc,mon)), el("td","n",""), el("td","n",fmtN(T.st,0)), el("td","n",fmtC(T.stc,mon)));
+    T.w.forEach(v => fr.append(el("td","n wk", RS.medida === "coste" ? fmtC(v,mon) : fmtN(v,0)))); tf.append(fr); }
+  t.append(tf); tw.append(t); box.append(tw);
+  box.append(el("p","hint","«Semanas que cubre» = stock de seguridad ÷ venta media semanal (en rojo si cubre menos de 4 semanas). En el stock previsto, ámbar: por debajo del stock de seguridad; rojo: rotura (reservas sin servir). Los totales se separan por moneda."));
+  RS._W = W; RS._sups = sups;
+  app.append(box);
+}
+function exportResumen(){
+  const W = RS._W || [], wb = XLSX.utils.book_new();
+  const A = [["Proveedor","Moneda","Código","Descripción","Modelo","A extinguir","Precio","Venta media semanal","Stock seguridad","Coste stock seguridad","Semanas que cubre","Stock real","Coste stock real", ...W.map(w => `${wLabel(w)} ${dShort(w)}`)]];
+  for (const s of RS._sups || []){ const mon = cfg(s._id).moneda || "EUR", Ws = weeks(s._id);
+    for (const p of prodsOf(s._id)){ const r = calc(p, s._id); const prev = W.map(w => { const i = Ws.findIndex(x => key(x) === key(w)); return i >= 0 ? Math.round(r.net[i]*100)/100 : ""; });
+      A.push([s.name, mon, dispCode(p), p.name, p.model || "", p.extinguir ? "Sí" : "", p.price ?? "", p.avg ?? "", p.ss ?? "", p.ss != null && p.price != null ? Math.round(p.ss*p.price*100)/100 : "", p.avg ? Math.round((p.ss||0)/p.avg*10)/10 : "", p.stock ?? "", p.price != null ? Math.round(Math.max(0,p.stock||0)*p.price*100)/100 : "", ...prev]); } }
+  XLSX.utils.book_append_sheet(wb, sheet(A, [24,6,18,34,12,10,10,12,12,14,12,10,14, ...W.map(() => 9)]), "Resumen por proveedor");
+  saveXlsx(wb, `Resumen_stock_proveedores_${stamp()}.xlsx`);
 }
 
 /* ===== Entradas manuales de almacén ===== */

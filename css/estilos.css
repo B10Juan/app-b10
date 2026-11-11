@@ -468,3 +468,22 @@ a.mod-card.carpeta .mod-body h2::before{content:"";display:inline-block;width:16
 .dtbl .lab{background:none;border:0;padding:0;font:inherit;color:inherit;cursor:pointer;text-align:left}
 .dtbl button.lab:hover{text-decoration:underline}
 .dtbl .lab.on{background:var(--dem-soft);color:var(--dem);font-weight:700;padding:0 4px;border-radius:3px}
+
+/* ---- Resumen por proveedor ---- */
+.resumen{margin-top:26px;padding-bottom:30px}
+.rtbl{font-size:13.5px}
+.rtbl th{white-space:nowrap;font-size:12.5px}
+.rtbl th.l,.rtbl td.l{text-align:left}
+.rtbl td,.rtbl th{padding:5px 8px}
+.rtbl tr.rsup td{background:var(--surface-2);font-weight:600;cursor:pointer;border-top:2px solid var(--line-strong)}
+.rtbl tr.rsup:hover td{background:var(--steel-soft)}
+.rtbl tr.rsup .exp{display:inline-block;width:16px;margin-right:6px;color:var(--ink-2)}
+.rtbl tr.rart td.code{padding-left:30px;font-family:"Barlow Semi Condensed",sans-serif;color:var(--ink-2)}
+.rtbl tr.rart.ext td{color:var(--ink-3)}
+.rtbl td input{width:70px;text-align:right;border:1px solid var(--line);border-radius:4px;padding:2px 6px;background:var(--surface);font:inherit}
+.rtbl td.wk{font-family:"Barlow Semi Condensed",sans-serif;min-width:52px}
+.rtbl td.neg{color:var(--red);font-weight:600}
+.rtbl td.under{background:var(--amber-soft);color:var(--amber)}
+.rtbl td.low{color:var(--red);font-weight:600}
+.rtbl tfoot td{font-weight:700;background:var(--surface);border-top:2px solid var(--ink-3);position:sticky;bottom:0}
+.rtbl thead th{position:sticky;top:0;z-index:1}
