@@ -58,8 +58,8 @@ function draw(){
   const md = (ctx.session.user.user_metadata || {});
   if (md.debe_cambiar_password) return drawPassword(app, true);
   if (r === "contrasena") return drawPassword(app, false);
-  const esPlan = r === "planificador" || r === "proveedores" || /^prov-\d+(-pedidos)?$/.test(r);
-  const esApp = ["compras","compras-ref","proveedores","pagos","usuarios","plan","demanda"].includes(r) || /^prov-\d+/.test(r);
+  const esPlan = r === "planificador" || r === "proveedores" || r === "stock" || /^prov-\d+(-pedidos)?$/.test(r);
+  const esApp = ["compras","compras-ref","proveedores","pagos","usuarios","plan","demanda","stock"].includes(r) || /^prov-\d+/.test(r);
   app.classList.toggle("con-lateral", esApp);
   if (esApp){ app.append(lateral(r)); const m = el("main","contenido"); app.append(m); app = m; }
   if (r === "compras" && nivel("compras")) renderCompras(app);
@@ -139,6 +139,7 @@ function lateral(r){
   item("#", "inicio", "Inicio", false);
   if (nivel("compras")) item("#compras", "compras", "Compras", r.startsWith("compras"));
   if (nivel("planificador")) item("#proveedores", "planificador", "Planificador", r === "proveedores" || /^prov-/.test(r));
+  if (nivel("planificador")) item("#stock", "stock", "Stock", r === "stock");
   if (nivel("pagos")) item("#pagos", "pagos", "Pagos", r === "pagos");
   if (nivel("plan_accion")) item("#plan", "plan", "Plan P.E.", r === "plan");
   if (nivel("demanda")) item("#demanda", "demanda", "Demanda", r === "demanda");

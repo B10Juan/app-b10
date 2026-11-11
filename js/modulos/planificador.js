@@ -9,7 +9,7 @@ const el = (t, cls, txt) => { const e = document.createElement(t); if (cls) e.cl
 const toast = m => toastU(m);
 const sheet = (a, w) => sheetU(a, w);
 const safe = s => safeU(s);
-const fmtM = (v,mon,d=2) => v==null||!isFinite(v) ? "" : v.toLocaleString("es-ES",{style:"currency",currency:mon||"EUR",minimumFractionDigits:d,maximumFractionDigits:Math.max(d, v!==0&&Math.abs(v)<10?4:2)});
+const fmtM = (v,mon,d=2) => v==null||!isFinite(v) ? "" : v.toLocaleString("es-ES",{style:"currency",currency:mon||"EUR",minimumFractionDigits:d,maximumFractionDigits: d===0 ? 0 : Math.max(d, v!==0&&Math.abs(v)<10?4:2)});
 // Moneda del proveedor que se está viendo (los precios de importación suelen ir en USD)
 const CUR = { mon:"EUR" };
 const fmtE = v => fmtM(v, CUR.mon, 0);
@@ -162,7 +162,6 @@ function renderHome(app){
     a.append(t); g.append(a);
   }
   app.append(g);
-  resumenProveedores(app);
 }
 const PARAMS=[["plazo","Pedido a puerto","sem"],["transito","Tránsito","sem"],["despacho","Despacho","sem"],["pagoDias","Pago antes de embarque","días"],["cobertura","Cobertura por pedido","sem"]];
 function renderSupHeader(app,r){
@@ -507,7 +506,9 @@ function renderPlanMenu(app){
     const t=el("div","stats"); let br=0,pe=0; for(const s of state.suppliers){const st=supStats(s._id); br+=st.brk; pe+=st.pend;} if(br) t.append(el("span","tag bad",`${br} artículos con rotura`)); if(pe) t.append(el("span","tag pend",`${pe} entradas sin pedido`)); a.append(t); g.append(a);}
   if(perm("pagos")!=="ninguno"){const a=el("a","mod-card pay"); a.href="#pagos"; a.append(el("h2",null,"Previsión pagos importaciones"),el("p",null,"Calendario de pagos de contenedores a partir de las fechas de embarque y los importes de los pedidos."));
     const rows=payRows(), t=el("div","stats"); const nx=sumMon(rows.filter(r=>!r.paid&&r.date<addW(today,4))); t.append(el("span","tag neutral",`${isZero(nx)?"Nada":fmtAny0(nx)} en las próximas 4 semanas`)); const ov=rows.filter(r=>r.late).length; if(ov) t.append(el("span","tag bad",`${ov} vencidos`)); a.append(t); g.append(a);}
-  for(const card of [...g.querySelectorAll("a.mod-card")]) conImagen(card, card.getAttribute("href")==="#pagos"?"pagos":"proveedores");
+  if(perm("compras")!=="ninguno"){const a=el("a","mod-card stk"); a.href="#stock"; a.append(el("h2",null,"Evolución del stock"),el("p",null,"Stock de seguridad y stock previsto semana a semana por proveedor y artículo, a partir de la planificación de importaciones."));
+    const t=el("div","stats"); let neg=0; for(const s of state.suppliers){ for(const p of prodsOf(s._id)){ if(p.extinguir) continue; const r=calc(p,s._id); if(r.net.slice(0,12).some(v=>v<-1e-9)) neg++; } } if(neg) t.append(el("span","tag bad",`${neg} artículos en rotura en 12 semanas`)); a.append(t); g.append(a);}
+  for(const card of [...g.querySelectorAll("a.mod-card")]){ const h=card.getAttribute("href"); conImagen(card, h==="#pagos"?"pagos":h==="#stock"?"stock":"proveedores"); }
   app.append(g);
 }
 
@@ -727,67 +728,78 @@ function delOrder(o){
 const RS = { abiertos:new Set(), semanas:12, medida:"uds" };
 // Número con punto de miles (también en 4 cifras) y los decimales indicados como máximo
 const fmtN = (v, d=0) => { if (v == null || !isFinite(v)) return ""; const r = Math.round(v * 10**d) / 10**d; const [e, f] = Math.abs(r).toFixed(d).split("."); const fx = f ? f.replace(/0+$/, "") : ""; return (r < 0 ? "-" : "") + e.replace(/\B(?=(\d{3})+(?!\d))/g, ".") + (fx ? "," + fx : ""); };
+function renderStock(app){
+  document.title="Evolución del stock";
+  const h=el("header","top pad"); const bb=el("div","brand"); const bk=el("a","back","‹ Planificador de compras"); bk.href="#planificador";
+  bb.append(bk, el("h1",null,"Evolución del stock"), el("p",null,"Stock de seguridad y stock previsto por proveedor y artículo, según la planificación de importaciones.")); h.append(bb); app.append(h);
+  resumenProveedores(app);
+}
 function resumenProveedores(app){
   const box = el("section","resumen pad");
-  box.append(el("h2","sec","Resumen por proveedor"));
-  box.append(el("p","secsub","Stock de seguridad, su coste y las semanas de venta que cubre, junto al stock previsto semana a semana. Pulsa un proveedor para ver sus artículos y ajustar el stock de seguridad: el cambio se guarda en la planificación de ese proveedor."));
-  const ctl = el("div","toolbar"); ctl.style.padding = "8px 0";
+  const ctl = el("div","toolbar rctl");
   const sg = (opts, v, on) => { const s2 = el("div","seg"); for (const [k,l] of opts){ const b = el("button",null,l); b.type = "button"; b.setAttribute("aria-pressed", String(k === v)); b.addEventListener("click", () => on(k)); s2.append(b); } return s2; };
-  const l1 = el("label"); l1.append("Stock previsto en ", sg([["uds","unidades"],["coste","coste"]], RS.medida, v => { RS.medida = v; render(); }));
+  const l1 = el("label"); l1.append("Ver en ", sg([["uds","unidades"],["coste","coste"]], RS.medida, v => { RS.medida = v; render(); }));
   const l2 = el("label"); l2.append("Semanas ", sg([[8,"8"],[12,"12"],[26,"26"],[52,"52"]], RS.semanas, v => { RS.semanas = v; render(); }));
   const allOpen = el("button","btn small", RS.abiertos.size ? "Plegar todo" : "Desplegar todo");
   allOpen.addEventListener("click", () => { if (RS.abiertos.size) RS.abiertos.clear(); else for (const s of state.suppliers) if (prodsOf(s._id).length) RS.abiertos.add(s._id); render(); });
   const ex = el("button","btn small","Exportar a Excel"); ex.addEventListener("click", exportResumen);
-  ctl.append(l1, l2, allOpen, ex); box.append(ctl);
+  const leg = el("div","rleg"); leg.append(el("span","l-under","bajo stock de seguridad"), el("span","l-neg","rotura"), el("span","l-low","cubre menos de 4 semanas"));
+  ctl.append(l1, l2, allOpen, ex, leg); box.append(ctl);
   const W = weeks(state.suppliers[0] ? state.suppliers[0]._id : "").slice(0, RS.semanas);
   const sups = state.suppliers.filter(s => prodsOf(s._id).length).sort((a,b) => (a.name||"").localeCompare(b.name||""));
-  const tw = el("div","tblwrap"); tw.style.maxHeight = "75vh"; const t = el("table","tbl rtbl");
-  const th = el("thead"), hr = el("tr");
-  const cols = [["Proveedor / código","l"],["Descripción","l"],["Precio","n"],["Venta media semanal","n"],["Stock seguridad (uds)","n"],["Coste stock seguridad","n"],["Semanas que cubre","n"],["Stock real hoy","n"],["Coste stock hoy","n"]];
-  for (const [x,c] of cols) hr.append(el("th",c,x));
-  for (const w of W) hr.append(el("th","n wk",wLabel(w))); th.append(hr); t.append(th);
+  const tw = el("div","rwrap"); const t = el("table","rtbl");
+  // cabecera en dos niveles y títulos en dos renglones
+  const th = el("thead");
+  const g1 = el("tr","grp"); const gc = (txt, n, cls) => { const x = el("th",cls||"",txt); x.colSpan = n; return x; };
+  g1.append(gc("",2,"fix"), gc("",2), gc("Stock de seguridad",3,"gs"), gc("Hoy",2,"gs"), gc(`Stock previsto por semana (${RS.medida === "coste" ? "coste" : "unidades"})`, W.length, "gs gw"));
+  const hr = el("tr");
+  const h2 = (a, b, cls) => { const x = el("th",cls||""); x.append(a); if (b){ x.append(el("br")); x.append(b); } return x; };
+  hr.append(h2("Proveedor", "y artículo", "l fix f1"), h2("Descripción", null, "l fix f2"), h2("Precio", null, "n"), h2("Venta media","semanal","n"),
+    h2("Unidades", null, "n gsl"), h2("Coste", null, "n"), h2("Semanas", "que cubre", "n"), h2("Stock", "real", "n gsl"), h2("Coste", null, "n"));
+  W.forEach((w,i) => { const x = el("th","n wk"+(i===0?" gsl":"")); x.append(wLabel(w)); x.append(el("br")); x.append(el("small",null,dShort(w))); hr.append(x); });
+  th.append(g1, hr); t.append(th);
   const tb = el("tbody"); const tot = {};
   const add = (mon, k, v) => { tot[mon] = tot[mon] || { ss:0, ssc:0, st:0, stc:0, w:new Array(W.length).fill(0) }; if (k === "w") v.forEach((x,i) => tot[mon].w[i] += x); else tot[mon][k] += v; };
   const cov = (ss, avg) => avg > 0 ? ss / avg : null;
   const fmtC = (v, mon) => v == null || !isFinite(v) ? "" : fmtN(v, 0) + (mon === "USD" ? " $" : " €");
+  const cel = (txt, cls) => { const td = el("td", cls || ""); const sp = el("span", null, txt); td.append(sp); return td; };
   for (const s of sups){
     const c = cfg(s._id), mon = c.moneda || "EUR", ps = prodsOf(s._id), Ws = weeks(s._id);
-    const rows = ps.map(p => { const r = calc(p, s._id); const idx = W.map(w => Ws.findIndex(x => key(x) === key(w)));
-      return { p, r, prev: idx.map(i => i >= 0 ? r.net[i] : null) }; });
+    const rows = ps.map(p => { const r = calc(p, s._id); const idx = W.map(w => Ws.findIndex(x => key(x) === key(w))); return { p, r, prev: idx.map(i => i >= 0 ? r.net[i] : null) }; });
     const ssU = ps.reduce((a,p) => a + (p.ss || 0), 0), ssC = ps.reduce((a,p) => a + (p.ss || 0) * (p.price || 0), 0);
-    const avg = ps.filter(p => !p.extinguir).reduce((a,p) => a + (p.avg || 0), 0);
     const stU = ps.reduce((a,p) => a + Math.max(0, p.stock || 0), 0), stC = ps.reduce((a,p) => a + Math.max(0, p.stock || 0) * (p.price || 0), 0);
     const wk = W.map((_,i) => rows.reduce((a,x) => a + (RS.medida === "coste" ? Math.max(0, x.prev[i] || 0) * (x.p.price || 0) : (x.prev[i] || 0)), 0));
     add(mon,"ss",ssU); add(mon,"ssc",ssC); add(mon,"st",stU); add(mon,"stc",stC); add(mon,"w",wk);
     const open = RS.abiertos.has(s._id);
-    const tr = el("tr","rsup"); tr.title = open ? "Plegar" : "Ver los artículos"; tr.addEventListener("click", () => { open ? RS.abiertos.delete(s._id) : RS.abiertos.add(s._id); render(); });
-    const c0 = el("td","l"); c0.append(el("span","exp",open ? "⊟" : "⊞"), el("b",null,s.name)); c0.colSpan = 2;
-    const cv = cov(ssU, avg);
-    tr.append(c0, el("td","n",""), el("td","n",fmtN(avg,2)), el("td","n",fmtN(ssU,0)), el("td","n",fmtC(ssC,mon)), el("td","n"+(cv!=null&&cv<4?" low":""),cv==null?"":fmtN(cv,1)), el("td","n",fmtN(stU,0)), el("td","n",fmtC(stC,mon)));
-    wk.forEach(v => tr.append(el("td","n wk"+(v<0?" neg":""), RS.medida === "coste" ? fmtC(v,mon) : fmtN(v,0))));
+    const tr = el("tr","rsup"+(open?" open":"")); tr.title = open ? "Plegar" : "Ver los artículos"; tr.addEventListener("click", () => { open ? RS.abiertos.delete(s._id) : RS.abiertos.add(s._id); render(); });
+    const c0 = el("td","l fix f1 sup"); c0.colSpan = 2; c0.append(el("span","chev", open ? "▾" : "▸"), el("b",null,s.name), el("small",null,` ${ps.length} art. · ${mon}`));
+    tr.append(c0, cel(""), cel(""), cel(fmtN(ssU,0),"gsl"), cel(fmtC(ssC,mon)), cel(""), cel(fmtN(stU,0),"gsl"), cel(fmtC(stC,mon)));
+    wk.forEach((v,i) => tr.append(cel(RS.medida === "coste" ? fmtC(v,mon) : fmtN(v,0), "wk"+(i===0?" gsl":"")+(v<0?" neg":""))));
     tb.append(tr);
     if (!open) continue;
     for (const x of rows){
       const p = x.p, r2 = el("tr","rart"+(p.extinguir?" ext":""));
-      r2.append(el("td","l code",dispCode(p)), el("td","l",p.name + (p.extinguir ? " (a extinguir)" : "")), el("td","n",p.price==null?"":fmtM(p.price,mon,2)), el("td","n",p.avg==null?"":fmtN(p.avg,2)));
-      const cs = el("td","n"); const inp = el("input"); inp.value = p.ss == null ? "" : p.ss; inp.inputMode = "decimal"; inp.disabled = !state.canWrite; inp.dataset.k = "rss|"+p._id; inp.setAttribute("aria-label",`Stock de seguridad de ${p.name}`);
+      const cp = el("td","l fix f1 code"); cp.append(dispCode(p)); const cd = el("td","l fix f2 desc"); cd.append(p.name); if (p.extinguir) cd.append(el("small",null," · a extinguir"));
+      r2.append(cp, cd, cel(p.price==null?"":fmtM(p.price,mon,2)), cel(p.avg==null?"":fmtN(p.avg,2)));
+      const cs = el("td","gsl"); const inp = el("input"); inp.value = p.ss == null ? "" : p.ss; inp.inputMode = "decimal"; inp.disabled = !state.canWrite; inp.dataset.k = "rss|"+p._id; inp.setAttribute("aria-label",`Stock de seguridad de ${p.name}`);
       inp.addEventListener("click", e => e.stopPropagation());
       inp.addEventListener("change", () => { const v = inp.value.trim() === "" ? null : num(inp.value); if (v != null && (isNaN(v) || v < 0)){ toast("El stock de seguridad debe ser un número igual o mayor que cero"); render(); return; }
         const np = clone(p); np.ss = v; saveProduct(np); toast(`Stock de seguridad de ${p.name}: ${v ?? "sin dato"}`); });
       cs.append(inp);
       const cvp = cov(p.ss || 0, p.avg || 0);
-      r2.append(cs, el("td","n",p.ss==null||p.price==null?"":fmtC(p.ss*p.price,mon)), el("td","n"+(cvp!=null&&cvp<4&&!p.extinguir?" low":""),cvp==null?"":fmtN(cvp,1)), el("td","n"+((p.stock||0)<0?" neg":""),fmtN(p.stock,0)), el("td","n",p.price==null?"":fmtC(Math.max(0,p.stock||0)*p.price,mon)));
-      x.prev.forEach(v => { const td = el("td","n wk"+(v==null?"":v<0?" neg":v<(p.ss||0)?" under":""), v==null?"":(RS.medida === "coste" ? fmtC(Math.max(0,v)*(p.price||0),mon) : fmtN(v,0))); r2.append(td); });
+      r2.append(cs, cel(p.ss==null||p.price==null?"":fmtC(p.ss*p.price,mon)), cel(cvp==null?"":fmtN(cvp,1), cvp!=null&&cvp<4&&!p.extinguir?"low":""),
+        cel(fmtN(p.stock,0), "gsl"+((p.stock||0)<0?" neg":"")), cel(p.price==null?"":fmtC(Math.max(0,p.stock||0)*p.price,mon)));
+      x.prev.forEach((v,i) => r2.append(cel(v==null?"":(RS.medida === "coste" ? fmtC(Math.max(0,v)*(p.price||0),mon) : fmtN(v,0)), "wk"+(i===0?" gsl":"")+(v==null?"":v<-1e-9?" neg":v<(p.ss||0)&&!p.extinguir?" under":""))));
       tb.append(r2);
     }
   }
   t.append(tb);
   const tf = el("tfoot");
-  for (const [mon, T] of Object.entries(tot)){ const fr = el("tr"); const c0 = el("td","l",`Total proveedores en ${mon}`); c0.colSpan = 4;
-    fr.append(c0, el("td","n",fmtN(T.ss,0)), el("td","n",fmtC(T.ssc,mon)), el("td","n",""), el("td","n",fmtN(T.st,0)), el("td","n",fmtC(T.stc,mon)));
-    T.w.forEach(v => fr.append(el("td","n wk", RS.medida === "coste" ? fmtC(v,mon) : fmtN(v,0)))); tf.append(fr); }
+  for (const [mon, T] of Object.entries(tot)){ const fr = el("tr"); const c0 = el("td","l fix f1"); c0.colSpan = 2; c0.append(el("b",null,`Total ${mon === "USD" ? "en dólares" : "en euros"}`));
+    fr.append(c0, cel(""), cel(""), cel(fmtN(T.ss,0),"gsl"), cel(fmtC(T.ssc,mon)), cel(""), cel(fmtN(T.st,0),"gsl"), cel(fmtC(T.stc,mon)));
+    T.w.forEach((v,i) => fr.append(cel(RS.medida === "coste" ? fmtC(v,mon) : fmtN(v,0), "wk"+(i===0?" gsl":"")+(v<0?" neg":"")))); tf.append(fr); }
   t.append(tf); tw.append(t); box.append(tw);
-  box.append(el("p","hint","«Semanas que cubre» = stock de seguridad ÷ venta media semanal (en rojo si cubre menos de 4 semanas). En el stock previsto, ámbar: por debajo del stock de seguridad; rojo: rotura (reservas sin servir). Los totales se separan por moneda."));
+  box.append(el("p","hint","Pulsa un proveedor para ver sus artículos. El stock de seguridad se puede cambiar aquí y se guarda en la planificación del proveedor. «Semanas que cubre» = stock de seguridad ÷ venta media semanal. Los totales se separan por moneda."));
   RS._W = W; RS._sups = sups;
   app.append(box);
 }
@@ -932,10 +944,11 @@ $("#fProd").addEventListener("submit", async ev => {
 /* ===== Entrada al módulo ===== */
 let lastHash = null;
 export function renderPlanificador(app, r){
-  if (r !== lastHash && (r === "planificador" || r === "proveedores" || r === "pagos") && S.loaded && !S.loading) cargar();
+  if (r !== lastHash && (r === "planificador" || r === "proveedores" || r === "pagos" || r === "stock") && S.loaded && !S.loading) cargar();
   lastHash = r;
   if (!S.loaded){ if (!S.loading) cargar(); app.append(el("div","loading","Cargando el planificador…")); return; }
   if (r === "planificador"){ CUR.mon = "EUR"; return renderPlanMenu(app); }
+  if (r === "stock"){ state.canWrite = puedeEditar("planificador"); renderStock(app); return soloVer(app); }
   if (r === "pagos"){ state.canWrite = puedeEditar("pagos"); renderPagos(app); return soloVer(app); }
   state.canWrite = puedeEditar("planificador");
   if (r === "proveedores"){ renderHome(app); return soloVer(app); }
