@@ -52,6 +52,13 @@ Cada cambio que se suba a GitHub se publica solo en Netlify en un minuto.
 - Permisos por módulo: Sin acceso, Visualización (ver, filtrar y exportar) o Edición. Los aplica la base de datos.
 - Scripts relacionados: supabase/migrations/06_usuarios_con_contrasena.sql
 
+## Tesorería · Facturas de proveedores pendientes de pago
+
+Hoja «Proveedores» del Excel Tesoreria.xlsx en `tesoreria.facturas_proveedores` (migración 18). Pendiente de pago =
+columna «Riesgo» (se muestra en positivo; los abonos, en negativo). Forma de pago = columna «Banco», con nombres
+legibles en `tesoreria.formas_pago`. Vencida = vencimiento anterior a hoy. Para actualizar: en el propio módulo,
+«Actualizar datos», eligiendo el Tesoreria.xlsx (se sustituyen todos los datos).
+
 ## Comercial · Análisis de la demanda
 
 Diario de pedidos de venta de AX (hoja «AC.Pedidos» del Excel Diario_Demanda_Cartera) en `ax.pedidos_venta_diario`

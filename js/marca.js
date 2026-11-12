@@ -16,6 +16,8 @@ export const MARCA = {
     operaciones:  `${W}/2025/12/bathtubs-collecion-b10-02-1300x750.jpg`,
     comercial:    `${W}/2025/12/washbasins-collecion-b10-01.jpg`,
     demanda:      `${W}/2025/12/bathtubs-collecion-b10-01.jpg`,
+    tesoreria:    `${W}/2025/12/shower-collecion-b10-02-1300x750.jpg`,
+    tesoreria_prov: `${W}/2025/12/washbasins-collecion-b10-01.jpg`,
   },
 };
 
@@ -45,6 +47,7 @@ const P = {
   pagos:'<rect x="2" y="6" width="20" height="13" rx="2"/><path d="M2 10h20"/><path d="M6 15h4"/>',
   demanda:'<path d="M3 20h18"/><path d="M5 16l4-5 4 3 6-8"/><path d="M15 6h4v4"/>',
   stock:'<path d="M3 7l9-4 9 4-9 4-9-4z"/><path d="M3 12l9 4 9-4"/><path d="M3 17l9 4 9-4"/>',
+  tesoreria:'<path d="M3 21h18M4 10h16M12 3l8 4H4l8-4z"/><path d="M6 10v8M10 10v8M14 10v8M18 10v8"/>',
   plan:'<path d="M4 6h10M4 12h16M4 18h7"/><circle cx="18" cy="6" r="2"/><circle cx="13" cy="18" r="2"/>',
   usuarios:'<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18.5 14.8c1.6.8 2.7 2.5 3 5.2"/>',
   clave:'<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M17 6l3 3M15 8l2 2"/>',

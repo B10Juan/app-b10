@@ -5,6 +5,7 @@ import { $, el, toast } from "./util.js";
 import { renderCompras, renderComprasRef } from "./modulos/compras.js";
 import { renderUsuarios } from "./modulos/usuarios.js";
 import { renderDemanda } from "./modulos/demanda.js";
+import { renderTesoreria } from "./modulos/tesoreria.js";
 import { renderPlanificador } from "./modulos/planificador.js";
 import { logo, conImagen, icono } from "./marca.js";
 
@@ -26,6 +27,7 @@ const MODULOS = [
   { codigo:"planificador", ruta:"planificador", titulo:"Planificador de compras", texto:"Revisión de artículos por proveedor, pedidos lanzados y previsión de pagos de importaciones.", clase:"", listo:true, tambien:"pagos" },
   { codigo:"plan_accion",  ruta:"plan",     titulo:"Plan Estratégico", texto:"Seguimiento del plan estratégico: líneas estratégicas, acciones clave, actividades y tareas, con responsables, estados, calendario y cronograma.", listo:true },
   { codigo:"demanda",      ruta:"demanda",  titulo:"Análisis de la demanda", texto:"Evolución de los pedidos de venta desde 2023: comparativas por año, estacionalidad, clientes, productos, zonas y agentes, cartera pendiente y detalle de líneas.", clase:"buy", listo:true },
+  { codigo:"tesoreria_prov", ruta:"tesoreria-proveedores", titulo:"Facturas de proveedores pendientes de pago", texto:"Importes pendientes por proveedor y mes de vencimiento, separando lo vencido de lo que vence más adelante, con el detalle de cada factura.", clase:"pay", listo:true },
   { codigo:"crm",          ruta:null,       titulo:"CRM de clientes", texto:"Información de clientes para los delegados.", listo:false },
 ];
 
@@ -34,6 +36,7 @@ const INICIO = [
   { tipo:"modulo",  codigo:"plan_accion" },
   { tipo:"carpeta", id:"operaciones", titulo:"Operaciones", texto:"Compras y planificación de las compras de importación.", hijos:["compras","planificador"] },
   { tipo:"usuarios" },
+  { tipo:"carpeta", id:"tesoreria",   titulo:"Tesorería",   texto:"Pagos pendientes y previsión de tesorería.", hijos:["tesoreria_prov"] },
   { tipo:"carpeta", id:"comercial",   titulo:"Comercial",   texto:"Clientes y equipo comercial.", hijos:["demanda","crm"] },
 ];
 const carpetaDe = codigo => INICIO.find(x => x.tipo === "carpeta" && x.hijos.includes(codigo));
@@ -59,7 +62,7 @@ function draw(){
   if (md.debe_cambiar_password) return drawPassword(app, true);
   if (r === "contrasena") return drawPassword(app, false);
   const esPlan = r === "planificador" || r === "proveedores" || r === "stock" || /^prov-\d+(-pedidos)?$/.test(r);
-  const esApp = ["compras","compras-ref","proveedores","pagos","usuarios","plan","demanda","stock"].includes(r) || /^prov-\d+/.test(r);
+  const esApp = ["compras","compras-ref","proveedores","pagos","usuarios","plan","demanda","stock","tesoreria-proveedores"].includes(r) || /^prov-\d+/.test(r);
   app.classList.toggle("con-lateral", esApp);
   if (esApp){ app.append(lateral(r)); const m = el("main","contenido"); app.append(m); app = m; }
   if (r === "compras" && nivel("compras")) renderCompras(app);
@@ -69,6 +72,7 @@ function draw(){
   else if (r === "usuarios" && isAdmin()) renderUsuarios(app);
   else if (r === "plan" && nivel("plan_accion")) drawPlan(app);
   else if (r === "demanda" && nivel("demanda")) renderDemanda(app);
+  else if (r === "tesoreria-proveedores" && nivel("tesoreria_prov")) renderTesoreria(app);
   else if (INICIO.some(x => x.tipo === "carpeta" && x.id === r)) drawCarpeta(app, r);
   else drawInicio(app);
   if (aeKey){ const n = document.querySelector(`[data-k="${CSS.escape(aeKey)}"]`); if (n) n.focus(); }
@@ -143,6 +147,7 @@ function lateral(r){
   if (nivel("pagos")) item("#pagos", "pagos", "Pagos", r === "pagos");
   if (nivel("plan_accion")) item("#plan", "plan", "Plan P.E.", r === "plan");
   if (nivel("demanda")) item("#demanda", "demanda", "Demanda", r === "demanda");
+  if (nivel("tesoreria_prov")) item("#tesoreria-proveedores", "tesoreria", "Tesorería", r === "tesoreria-proveedores");
   if (isAdmin()) item("#usuarios", "usuarios", "Usuarios", r === "usuarios");
   a.append(nav);
   const pie = el("div","lat-pie");

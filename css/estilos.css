@@ -527,3 +527,22 @@ a.mod-card.carpeta .mod-body h2::before{content:"";display:inline-block;width:16
 .rtbl tfoot tr + tr td{bottom:0}
 .rtbl tfoot td.fix{z-index:3}
 a.mod-card.stk .mod-body{border-top-color:var(--steel)}
+
+/* ---- Tesorería: facturas pendientes ---- */
+.tesbl .f1{width:300px;min-width:300px;max-width:300px;box-shadow:inset -1px 0 0 var(--line)}
+.tesbl thead tr:not(.grp) th.f1{box-shadow:inset -1px 0 0 var(--line),inset 0 -1px 0 var(--line-strong)}
+.tesbl tfoot td.f1{box-shadow:inset -1px 0 0 var(--line),inset 0 1px 0 var(--line-strong)}
+.tesbl tr.rsup td.sup{white-space:normal}
+.tesbl tr.rart td.code{white-space:normal;font-family:"Barlow",sans-serif;font-size:12px}
+.tesbl tr.rart td.code small{color:var(--ink-3)}
+.tesbl td.fp{font-family:"Barlow",sans-serif;font-size:12px;color:var(--ink-2)}
+.tesbl th.m,.tesbl td{min-width:74px}
+.tesbl td.tot,.tesbl th.tot{background:color-mix(in srgb,var(--steel-soft) 70%,transparent);font-weight:600}
+.tesbl tr.rsup td.tot{background:color-mix(in srgb,var(--steel-soft) 100%,var(--surface-2))}
+.tesbl tfoot td.tot{background:var(--steel-soft)}
+.tesbl td.venc span{color:var(--red)}
+.tesbl tr.rsup td.venc span{font-weight:600}
+.tesbl td.abono span{color:var(--arrive)}
+.tesbl td.late{color:var(--red);font-weight:600}
+.tesbl thead tr.grp th.gv::after{background:var(--red)}
+.tes .kpi.bad b{color:var(--red)}
