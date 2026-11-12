@@ -558,3 +558,9 @@ a.mod-card.stk .mod-body{border-top-color:var(--steel)}
 .ctrl .acc .btn{height:36px}
 nav.tabs .btn{align-self:center;margin-bottom:4px}
 .upmsg:empty{display:none}
+/* Tesorería: grupos de columnas Vencida / No vencida desplegables */
+.tesbl thead tr.grp th.tog{padding-top:4px}
+.tesbl .gtog{background:none;border:0;padding:2px 4px;font:inherit;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-2);cursor:pointer;display:inline-flex;align-items:center;gap:6px;border-radius:4px}
+.tesbl .gtog:hover{background:var(--surface-2);color:var(--ink)}
+.tesbl .gtog .gi{font-size:13px;line-height:1;color:var(--ink-3)}
+.tesbl th.gv .gtog{color:var(--red)}

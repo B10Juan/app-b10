@@ -2,7 +2,7 @@
 import { sb, render, cabecera, nivel } from "../app.js";
 import { el, toast, dLong, parseKey, xDate, sheet, saveXlsx, stamp } from "../util.js";
 
-const T = { rows:null, loading:false, formas:{}, carga:null, abiertos:new Set(), q:"", formasSel:[], soloVencidas:false, verAbonos:true };
+const T = { expV:true, expN:true, rows:null, loading:false, formas:{}, carga:null, abiertos:new Set(), q:"", formasSel:[], soloVencidas:false, verAbonos:true };
 const MES = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
 const hoyKey = (() => { const d = new Date(); const p = n => String(n).padStart(2,"0"); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`; })();
 const eur = v => { if (v == null || !isFinite(v) || Math.abs(v) < 0.5) return ""; const n = Math.round(v); return (n < 0 ? "-" : "") + String(Math.abs(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ".") + " €"; };
@@ -83,13 +83,18 @@ export function renderTesoreria(app){
   for (const r of L){ const x = prov.get(r.proveedor) || { nombre:r.proveedor, cod:r.proveedor_cod, filas:[], v:{}, n:{}, tv:0, tn:0, t:0 };
     const m = mk(r); if (vencida(r)){ x.v[m] = (x.v[m] || 0) + r.pend; x.tv += r.pend; } else { x.n[m] = (x.n[m] || 0) + r.pend; x.tn += r.pend; } x.t += r.pend; x.filas.push(r); prov.set(r.proveedor, x); }
   const P = [...prov.values()].sort((a,b) => b.t - a.t);
+  // grupos de columnas desplegables: plegados solo se ve su total
+  const mVv = T.expV ? mV : [], mNv = T.expN ? mN : [];
   const tw = el("div","rwrap"); const t = el("table","rtbl tesbl");
   const th = el("thead"); const g1 = el("tr","grp"); const gc = (txt, n, cls) => { const x = el("th",cls||"",txt); x.colSpan = n; return x; };
-  g1.append(gc("",1,"fix f1"), gc("",3), gc("Vencida", mV.length + 1, "gs gv"), gc("No vencida", mN.length + 1, "gs"), gc("",1));
+  const gt = (txt, n, cls, key) => { const x = gc("", n, cls + " tog"); const b = el("button","gtog"); b.type = "button"; const ab = T[key];
+    b.append(el("span","gi", ab ? "⊟" : "⊞"), txt); b.title = ab ? `Agrupar: ver solo el total ${txt.toLowerCase()}` : `Desplegar los meses de ${txt.toLowerCase()}`;
+    b.addEventListener("click", () => { T[key] = !T[key]; render(); }); x.append(b); return x; };
+  g1.append(gc("",1,"fix f1"), gc("",3), gt("Vencida", mVv.length + 1, "gs gv", "expV"), gt("No vencida", mNv.length + 1, "gs", "expN"), gc("",1));
   const hr = el("tr"); const h2 = (a, b, cls) => { const x = el("th",cls||""); x.append(a); if (b){ x.append(el("br")); x.append(el("small",null,b)); } return x; };
   hr.append(h2("Proveedor", "o factura", "l fix f1"), h2("Fecha", "factura", "n"), h2("Vencimiento", null, "n"), h2("Forma", "de pago", "l"));
-  mV.forEach((m,i) => hr.append(h2(mesLab(m), null, "n m"+(i===0?" gsl":"")))); hr.append(h2("Total", "vencida", "n tot"+(mV.length?"":" gsl")));
-  mN.forEach((m,i) => hr.append(h2(mesLab(m), null, "n m"+(i===0?" gsl":"")))); hr.append(h2("Total", "no vencida", "n tot"+(mN.length?"":" gsl")));
+  mVv.forEach((m,i) => hr.append(h2(mesLab(m), null, "n m"+(i===0?" gsl":"")))); hr.append(h2("Total", "vencida", "n tot"+(mVv.length?"":" gsl")));
+  mNv.forEach((m,i) => hr.append(h2(mesLab(m), null, "n m"+(i===0?" gsl":"")))); hr.append(h2("Total", "no vencida", "n tot"+(mNv.length?"":" gsl")));
   hr.append(h2("Total", "pendiente", "n tot gsl"));
   th.append(g1, hr); t.append(th);
   const tb = el("tbody");
@@ -99,24 +104,24 @@ export function renderTesoreria(app){
     const tr = el("tr","rsup"+(open?" open":"")); tr.title = open ? "Plegar" : "Ver sus facturas"; tr.addEventListener("click", () => { open ? T.abiertos.delete(x.nombre) : T.abiertos.add(x.nombre); render(); });
     const c0 = el("td","l fix f1 sup"); c0.append(el("span","chev", open ? "▾" : "▸"), el("b",null,x.nombre), el("small",null,` ${x.filas.length} fra.`));
     tr.append(c0, el("td"), el("td"), el("td"));
-    mV.forEach((m,i) => tr.append(celda(x.v[m], "venc"+(i===0?" gsl":"")))); tr.append(celda(x.tv, "tot venc"+(mV.length?"":" gsl")));
-    mN.forEach((m,i) => tr.append(celda(x.n[m], i===0?"gsl":""))); tr.append(celda(x.tn, "tot"+(mN.length?"":" gsl")));
+    mVv.forEach((m,i) => tr.append(celda(x.v[m], "venc"+(i===0?" gsl":"")))); tr.append(celda(x.tv, "tot venc"+(mVv.length?"":" gsl")));
+    mNv.forEach((m,i) => tr.append(celda(x.n[m], i===0?"gsl":""))); tr.append(celda(x.tn, "tot"+(mNv.length?"":" gsl")));
     tr.append(celda(x.t, "tot gsl")); tb.append(tr);
     if (!open) continue;
     for (const r of x.filas.slice().sort((a,b) => (a.venc || "9") < (b.venc || "9") ? -1 : 1)){
       const rr = el("tr","rart"); const cf = el("td","l fix f1 code"); cf.append(`Fra. ${r.factura || "—"}`); if (r.concepto) cf.title = r.concepto; cf.append(el("small",null,` · ${r.asiento || ""}`));
       rr.append(cf, el("td","n",fec(r.fecha_factura)), el("td","n"+(vencida(r)?" late":""),fec(r.venc)), el("td","l fp",T.formas[r.forma_pago] || r.forma_pago || ""));
       const m = mk(r);
-      mV.forEach((mm,i) => rr.append(celda(vencida(r) && mm === m ? r.pend : null, "venc"+(i===0?" gsl":"")))); rr.append(celda(vencida(r) ? r.pend : null, "tot venc"+(mV.length?"":" gsl")));
-      mN.forEach((mm,i) => rr.append(celda(!vencida(r) && mm === m ? r.pend : null, i===0?"gsl":""))); rr.append(celda(!vencida(r) ? r.pend : null, "tot"+(mN.length?"":" gsl")));
+      mVv.forEach((mm,i) => rr.append(celda(vencida(r) && mm === m ? r.pend : null, "venc"+(i===0?" gsl":"")))); rr.append(celda(vencida(r) ? r.pend : null, "tot venc"+(mVv.length?"":" gsl")));
+      mNv.forEach((mm,i) => rr.append(celda(!vencida(r) && mm === m ? r.pend : null, i===0?"gsl":""))); rr.append(celda(!vencida(r) ? r.pend : null, "tot"+(mNv.length?"":" gsl")));
       rr.append(celda(r.pend, "tot gsl")); tb.append(rr);
     }
   }
-  if (!P.length){ const tr = el("tr"); const td = el("td","empty","No hay facturas pendientes con estos filtros."); td.colSpan = 6 + mV.length + mN.length; tr.append(td); tb.append(tr); }
+  if (!P.length){ const tr = el("tr"); const td = el("td","empty","No hay facturas pendientes con estos filtros."); td.colSpan = 6 + mVv.length + mNv.length; tr.append(td); tb.append(tr); }
   t.append(tb);
   const tf = el("tfoot"), fr = el("tr"); const c0 = el("td","l fix f1"); c0.append(el("b",null,"Total general")); fr.append(c0, el("td"), el("td"), el("td"));
-  mV.forEach((m,i) => fr.append(celda(P.reduce((s,x) => s + (x.v[m] || 0), 0), "venc"+(i===0?" gsl":"")))); fr.append(celda(sum(V.filter(r => L.includes(r))), "tot venc"+(mV.length?"":" gsl")));
-  mN.forEach((m,i) => fr.append(celda(P.reduce((s,x) => s + (x.n[m] || 0), 0), i===0?"gsl":""))); fr.append(celda(sum(L.filter(r => !vencida(r))), "tot"+(mN.length?"":" gsl")));
+  mVv.forEach((m,i) => fr.append(celda(P.reduce((s,x) => s + (x.v[m] || 0), 0), "venc"+(i===0?" gsl":"")))); fr.append(celda(sum(V.filter(r => L.includes(r))), "tot venc"+(mVv.length?"":" gsl")));
+  mNv.forEach((m,i) => fr.append(celda(P.reduce((s,x) => s + (x.n[m] || 0), 0), i===0?"gsl":""))); fr.append(celda(sum(L.filter(r => !vencida(r))), "tot"+(mNv.length?"":" gsl")));
   fr.append(celda(sum(L), "tot gsl")); tf.append(fr); t.append(tf);
   tw.append(t); box.append(tw);
   box.append(el("p","hint","Pulsa un proveedor para ver sus facturas. Al pasar el ratón por una factura se ve su concepto."));
