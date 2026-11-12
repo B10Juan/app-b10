@@ -546,3 +546,15 @@ a.mod-card.stk .mod-body{border-top-color:var(--steel)}
 .tesbl td.late{color:var(--red);font-weight:600}
 .tesbl thead tr.grp th.gv::after{background:var(--red)}
 .tes .kpi.bad b{color:var(--red)}
+
+/* Controles alineados: todos los campos de los filtros con la misma altura y base */
+.ctrl{align-items:flex-end}
+.ctrl .fld{align-content:end}
+.ctrl .fld > span{line-height:1.2}
+.ctrl input[type=search],.ctrl .fld select{height:36px;border:1px solid var(--line-strong);border-radius:6px;padding:0 10px;background:var(--surface);min-width:240px;font-size:14px}
+.ctrl .seg button{height:36px;padding-top:0;padding-bottom:0}
+.ctrl label.chk{height:36px;display:flex;align-items:center}
+.ctrl .acc{margin-left:auto;display:flex;gap:8px;align-items:center;height:36px}
+.ctrl .acc .btn{height:36px}
+nav.tabs .btn{align-self:center;margin-bottom:4px}
+.upmsg:empty{display:none}

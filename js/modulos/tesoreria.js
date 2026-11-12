@@ -49,8 +49,15 @@ export function renderTesoreria(app){
   fd.append(el("span",null,"Forma de pago"), sg); ctl.append(fd);
   const cb = (txt, key) => { const l = el("label","chk"); const i = el("input"); i.type = "checkbox"; i.checked = T[key]; i.addEventListener("change", () => { T[key] = i.checked; render(); }); l.append(i, " " + txt); return l; };
   ctl.append(cb("Solo vencidas","soloVencidas"), cb("Incluir abonos","verAbonos"));
-  const exb = el("button","btn","Exportar a Excel"); exb.style.marginLeft = "auto"; exb.addEventListener("click", exportar); ctl.append(exb);
-  box.append(ctl);
+  const acc = el("div","acc"); const exb = el("button","btn","Exportar a Excel"); exb.addEventListener("click", exportar); acc.append(exb);
+  if (nivel("tesoreria_prov") === "editar"){
+    const inp = el("input"); inp.type = "file"; inp.accept = ".xlsx,.xlsm"; inp.hidden = true;
+    const up = el("button","btn primary","Actualizar con Excel"); up.title = "Subir el fichero Tesoreria.xlsx (se lee la hoja «Proveedores»)"; up.addEventListener("click", () => inp.click());
+    inp.addEventListener("change", () => { if (inp.files[0]) cargarFichero(inp.files[0], T.msg, inp); });
+    acc.append(up, inp);
+  }
+  ctl.append(acc); box.append(ctl);
+  if (!T.msg) T.msg = el("p","hint upmsg"); box.append(T.msg);
 
   const qq = T.q.trim().toLowerCase();
   const L = T.rows.filter(r => (!T.formasSel.length || T.formasSel.includes(r.forma_pago || ""))
@@ -114,7 +121,6 @@ export function renderTesoreria(app){
   tw.append(t); box.append(tw);
   box.append(el("p","hint","Pulsa un proveedor para ver sus facturas. Al pasar el ratón por una factura se ve su concepto."));
   T._L = L; T._mV = mV; T._mN = mN; T._P = P;
-  cargaBox(box);
 }
 
 function exportar(){

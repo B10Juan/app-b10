@@ -74,13 +74,20 @@ export function renderDemanda(app){
   const nav = el("nav","tabs"); nav.style.marginBottom = "12px";
   for (const [k,t] of [["seguimiento","Seguimiento de la demanda"],["clientes","Clientes"],["cartera","Cartera pendiente"],["lineas","Detalle de líneas"]]){
     const a = el("a",null,t); a.href = "#demanda"; if (F.tab === k) a.setAttribute("aria-current","page"); a.addEventListener("click", e => { e.preventDefault(); F.tab = k; render(); }); nav.append(a); }
+  if (nivel("demanda") === "editar"){
+    const inp = el("input"); inp.type = "file"; inp.accept = ".xlsx,.xlsm"; inp.hidden = true;
+    const up = el("button","btn primary small","Actualizar con Excel"); up.title = "Subir el fichero Diario_Demanda_Cartera de un año"; up.style.marginLeft = "auto"; up.addEventListener("click", () => inp.click());
+    if (!F.msg) F.msg = el("span","hint upmsg");
+    inp.addEventListener("change", () => { if (inp.files[0]) cargarFichero(inp.files[0], F.msg, inp); });
+    nav.append(up, inp);
+  }
   box.append(nav);
+  if (F.msg) box.append(F.msg);
   if (F.tab !== "cartera") controles(box);
   if (F.tab === "seguimiento") tabSeguimiento(box);
   else if (F.tab === "clientes") tabClientes(box);
   else if (F.tab === "cartera") tabCartera(box);
   else tabLineas(box);
-  cargaBox(box);
 }
 
 /* ---------------- Controles comunes ---------------- */
