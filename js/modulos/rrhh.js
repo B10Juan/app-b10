@@ -12,7 +12,7 @@ const CONTRATOS = ["Indefinido","Temporal","Fijo discontinuo","Prácticas","Form
 const MOTIVOS = ["Despido","Baja voluntaria","Fin de contrato","Jubilación","Fin puesta a disposición","Baja (pendiente motivo)","Otros"];
 const OBLIG = [["clasificacion","Clasificación"],["departamento","Departamento"],["tipo_contrato","Tipo de contrato"],["fecha_alta","Fecha de alta"]];
 
-const R = { tab:"resumen", data:null, loading:false, anio:null, agr:"departamento", repartirEtt:false,
+const R = { tab:"resumen", data:null, loading:false, anio:null, agr:"departamento", repartirEtt:false, indem:true, abiertos:new Set(),
   f:{ estado:"activos", vinculo:"", q:"", incompletas:false }, fe:{ q:"", dep:"" }, msg:null };
 let charts = [];
 
@@ -34,7 +34,7 @@ async function cargar(){
   try{
     const [personas, nomina, deps, periodos, act] = await Promise.all([
       todo(() => sch().from("personas").select("*").order("codigo")),
-      todo(() => sch().from("nomina_mensual").select("periodo,codigo,bruto,ss_empresa,coste_empresa,indemnizacion,it_enfermedad,vacaciones_finiquito,paga_extra,coste_total,coste_ordinario,horas_presencia,base_cc,ss_trabajador,irpf,otras_deducciones,liquido,paga_extra_irpf,paga_extra_liquido").order("periodo")),
+      todo(() => sch().from("nomina_mensual").select("periodo,codigo,bruto,ss_empresa,coste_empresa,indemnizacion,it_enfermedad,vacaciones_finiquito,paga_extra,coste_total,coste_ordinario,horas_presencia,base_cc,ss_trabajador,irpf,otras_deducciones,liquido,paga_extra_irpf,paga_extra_liquido,prorrata_extra").order("periodo")),
       sch().from("departamentos").select("*").order("orden").then(r => { if (r.error) throw r.error; return r.data; }),
       todo(() => sch().from("ett_periodos").select("*").order("fecha_inicio")),
       todo(() => sch().from("v_ett_activos_mes").select("*")),
@@ -42,7 +42,7 @@ async function cargar(){
     let fact = [];
     try { fact = await todo(() => sch().from("v_ett_facturas").select("*").order("fecha_factura")); }
     catch(e){ console.warn("Sin facturas ETT", e); }
-    const num = r => { for (const k of ["bruto","ss_empresa","coste_empresa","indemnizacion","it_enfermedad","vacaciones_finiquito","paga_extra","coste_total","coste_ordinario","horas_presencia","base_cc","ss_trabajador","irpf","otras_deducciones","liquido","paga_extra_irpf","paga_extra_liquido"]) r[k] = +r[k] || 0; return r; };
+    const num = r => { for (const k of ["bruto","ss_empresa","coste_empresa","indemnizacion","it_enfermedad","vacaciones_finiquito","paga_extra","coste_total","coste_ordinario","horas_presencia","base_cc","ss_trabajador","irpf","otras_deducciones","liquido","paga_extra_irpf","paga_extra_liquido","prorrata_extra"]) r[k] = +r[k] || 0; return r; };
     R.data = { personas, nomina: nomina.map(num), deps, periodos, act, fact: fact.map(f => ({ ...f, base_imponible:+f.base_imponible || 0, importe_total:+f.importe_total || 0 })) };
     R.data.porCodigo = new Map(personas.map(p => [p.codigo, p]));
     const anios = [...new Set(nomina.map(n => +n.periodo.slice(0,4)))].sort();
@@ -107,65 +107,60 @@ export function renderRrhh(app){
 }
 
 // ---------- Resumen ----------
+// Coste devengado de una nómina: coste de empresa ordinario + prorrata de la paga extra de verano
+// (la de Navidad ya va prorrateada en cada nómina; la de junio se reparte con la «prorrata pagas extras» de cada mes).
+// Las indemnizaciones se incluyen o no según el selector.
+const indemn = n => R.indem ? n.indemnizacion : 0;
+const costeDev = n => n.coste_empresa - n.indemnizacion + indemn(n) + n.prorrata_extra;
+const ORDEN_CLAS = ["M.O.E","M.O.I","M.O.D","ETT"];
+const clasDe = p => !p ? "Sin clasificar" : p.tipo_vinculo === "ETT" ? "ETT" : (p.clasificacion || "Sin clasificar");
 function serieMensual(){
   const M = meses(), D = R.data;
   return M.map(m => {
     const N = D.nomina.filter(n => n.periodo === m), ett = sum(Object.values(ettMes(m)), x => x);
-    const ord = sum(N, n => n.coste_ordinario), ind = sum(N, n => n.indemnizacion), ext = sum(N, n => n.paga_extra);
-    const pers = new Set(N.filter(n => n.bruto || n.coste_total).map(n => n.codigo)).size;
-    const ettN = new Set(D.act.filter(a => a.periodo === m).map(a => a.codigo)).size, ettD = sum(D.act.filter(a => a.periodo === m), a => a.dias);
-    const horas = sum(N, n => n.horas_presencia);
-    return { m, ord, ind, ext, nom: ord + ind + ext, ett, tot: ord + ind + ext + ett, pers, ettN, ettD, horas };
+    const ord = sum(N, n => n.coste_empresa - n.indemnizacion), ind = sum(N, n => indemn(n)), ext = sum(N, n => n.prorrata_extra);
+    const pers = new Set(N.filter(n => n.bruto || n.coste_empresa).map(n => n.codigo)).size;
+    const ettN = new Set(D.act.filter(a => a.periodo === m).map(a => a.codigo)).size;
+    return { m, ord, ind, ext, nom: ord + ind + ext, ett, tot: ord + ind + ext + ett, pers, ettN };
   });
 }
-function tabResumen(box){
-  const S = serieMensual(); if (!S.length){ box.append(el("div","card empty","No hay datos de este año.")); return; }
-  const u = S[S.length - 1], T = k => sum(S, s => s[k]);
-  const k = el("div","kpis"); const kp = (t, v, s, cl) => { const d = el("div","kpi"+(cl?" "+cl:"")); d.append(el("small",null,t), el("b",null,v)); if (s) d.append(el("span","delta",s)); return d; };
-  k.append(
-    kp(`Coste total de personal ${R.anio}`, eur(T("tot")) + " €", `${mesLab(S[0].m)} – ${mesLab(u.m)} · nómina + ETT`),
-    kp("Coste ordinario medio / mes", eur(T("ord") / S.length) + " €", "nómina sin indemnizaciones ni pagas extra"),
-    kp(`Plantilla en nómina (${mesLab(u.m)})`, String(u.pers), `${eur(u.pers ? u.ord / u.pers : 0)} € coste medio por persona`),
-    kp(`Personas ETT (${mesLab(u.m)})`, String(u.ettN), `${eur(u.ett)} € facturado`),
-    kp(`Peso ETT (${mesLab(u.m)})`, pctf(u.tot ? u.ett / u.tot : null), `media del año ${pctf(T("tot") ? T("ett") / T("tot") : null)}`, u.tot && u.ett / u.tot > 0.18 ? "bad" : ""));
-  box.append(k);
-
-  const cc = el("div","charts"); const card = el("div","card chartcard"); card.append(el("h3",null,"Coste de personal por mes (€)")); const cv = el("canvas"); card.append(cv); cc.append(card);
-  const card2 = el("div","card chartcard"); card2.append(el("h3",null,"Personas por mes")); const cv2 = el("canvas"); card2.append(cv2); cc.append(card2);
-  box.append(cc);
-  requestAnimationFrame(() => {
-    if (!window.Chart || !cv.isConnected) return;
-    const L = S.map(s => mesLab(s.m));
-    charts.push(new Chart(cv, { type:"bar", data:{ labels:L, datasets:[
-      { label:"Nómina ordinaria", data:S.map(s => Math.round(s.ord)), backgroundColor:COL.ord, stack:"a" },
-      { label:"Indemnizaciones", data:S.map(s => Math.round(s.ind)), backgroundColor:COL.ind, stack:"a" },
-      { label:"Paga extra", data:S.map(s => Math.round(s.ext)), backgroundColor:COL.ext, stack:"a" },
-      { label:"ETT (sin IVA)", data:S.map(s => Math.round(s.ett)), backgroundColor:COL.ett, stack:"a" }]},
-      options:{ maintainAspectRatio:false, plugins:{ legend:{ position:"bottom" }, tooltip:{ callbacks:{ label:c => `${c.dataset.label}: ${eur(c.raw)} €` } } }, scales:{ y:{ stacked:true, ticks:{ callback:v => eur(v) } }, x:{ stacked:true } } } }));
-    charts.push(new Chart(cv2, { type:"bar", data:{ labels:L, datasets:[
-      { label:"Nómina", data:S.map(s => s.pers), backgroundColor:COL.ord, stack:"p" }, { label:"ETT", data:S.map(s => s.ettN), backgroundColor:COL.ett, stack:"p" }]},
-      options:{ maintainAspectRatio:false, plugins:{ legend:{ position:"bottom" } }, scales:{ y:{ stacked:true, beginAtZero:true }, x:{ stacked:true } } } }));
-  });
-
-  const filas = [
-    ["Personas con nómina", s => s.pers, "n"], ["Nómina ordinaria", s => s.ord], ["Indemnizaciones", s => s.ind], ["Paga extra", s => s.ext],
-    ["Total nómina", s => s.nom, "b"], ["ETT (base imponible)", s => s.ett], ["Coste total personal", s => s.tot, "b"],
-    ["% ETT sobre el total", s => s.tot ? s.ett / s.tot : null, "p"], ["Coste ordinario medio por persona", s => s.pers ? s.ord / s.pers : null],
-    ["Horas de presencia (nómina)", s => s.horas, "n"], ["Coste ordinario por hora", s => s.horas ? s.ord / s.horas : null, "d"],
-    ["Personas ETT (según contratos)", s => s.ettN, "n"], ["Coste ETT por día-persona", s => s.ettD ? s.ett / s.ettD : null, "d"] ];
-  const tw = el("div","tblwrap"); const t = el("table","tbl"); const hr = el("tr"); hr.append(el("th",null,"Concepto")); for (const s of S) hr.append(el("th","n",mesLab(s.m))); hr.append(el("th","n","Total"), el("th","n","Media")); t.append(el("thead")); t.tHead.append(hr);
+function ctrlIndem(box){
+  const c = el("div","ctrl"); const s = el("div","seg");
+  for (const [k,l] of [[true,"Incluir"],[false,"No incluir"]]){ const b = el("button",null,l); b.type = "button"; b.setAttribute("aria-pressed", String(R.indem === k)); b.addEventListener("click", () => { R.indem = k; render(); }); s.append(b); }
+  const d = el("div","fld"); d.append(el("span",null,"Indemnizaciones"), s); c.append(d);
+  c.append(el("span","hint","La paga extra de junio se reparte mes a mes (prorrata de la nómina), igual que la de Navidad."));
+  box.append(c);
+}
+function tablaMeses(box, titulo, filas, M){
+  if (titulo) box.append(el("h3",null,titulo));
+  const tw = el("div","tblwrap"); const t = el("table","tbl"); const hr = el("tr"); hr.append(el("th",null,"Concepto")); for (const m of M) hr.append(el("th","n",mesLab(m))); hr.append(el("th","n","Total")); t.append(el("thead")); t.tHead.append(hr);
   const tb = el("tbody");
-  for (const [lab, f, tp] of filas){
-    const tr = el("tr", tp === "b" ? "wk" : null); tr.append(el("td",null,lab)); const v = S.map(f);
-    const fm = x => x == null ? "" : tp === "p" ? pctf(x) : tp === "n" ? String(Math.round(x)) : tp === "d" ? (+x).toLocaleString("es-ES",{maximumFractionDigits:0}) : eur(x);
-    for (const x of v) tr.append(el("td","n",fm(x)));
-    const tot = ["p","d"].includes(tp) || lab.startsWith("Coste ordinario medio") || lab.startsWith("Personas") ? null : v.reduce((a,b) => a + (b || 0), 0);
-    const med = v.filter(x => x != null).length ? v.reduce((a,b) => a + (b || 0), 0) / v.filter(x => x != null).length : null;
-    tr.append(el("td","n",tot == null ? "" : fm(tot)), el("td","n",fm(med))); tb.append(tr);
-  }
+  for (const f of filas){ const tr = el("tr", f.b ? "wk" : null); tr.append(el("td",null,f.lab)); for (const v of f.v) tr.append(el("td","n", f.n ? String(Math.round(v || 0)) : eur(v || 0)));
+    tr.append(el("td","n", f.n ? "" : eur(sum(f.v, x => x)))); tb.append(tr); }
   t.append(tb); tw.append(t); box.append(tw);
+}
+function tabResumen(box){
+  ctrlIndem(box);
+  const S = serieMensual(); if (!S.length){ box.append(el("div","card empty","No hay datos de este año.")); return; }
+  const M = S.map(s => s.m);
+  const filas = [ { lab:"Personas con nómina", v:S.map(s => s.pers), n:true }, { lab:"Nómina ordinaria", v:S.map(s => s.ord) } ];
+  if (R.indem) filas.push({ lab:"Indemnizaciones", v:S.map(s => s.ind) });
+  filas.push({ lab:"Paga extra de verano (prorrata)", v:S.map(s => s.ext) }, { lab:"Total nómina", v:S.map(s => s.nom), b:true },
+    { lab:"ETT (base imponible)", v:S.map(s => s.ett) }, { lab:"Coste total personal", v:S.map(s => s.tot), b:true });
+  tablaMeses(box, null, filas, M);
+  // por clasificación: M.O.E, M.O.I, M.O.D y ETT
+  const D = R.data, G = {};
+  for (const n of D.nomina) if (M.includes(n.periodo)){ const g = clasDe(D.porCodigo.get(n.codigo)); (G[g] = G[g] || {})[n.periodo] = (G[g][n.periodo] || 0) + costeDev(n); }
+  G.ETT = Object.fromEntries(M.map(m => [m, sum(Object.values(ettMes(m)), x => x)]));
+  const grupos = [...ORDEN_CLAS, ...Object.keys(G).filter(g => !ORDEN_CLAS.includes(g))].filter(g => G[g]);
+  const F2 = grupos.map(g => ({ lab:g, v:M.map(m => G[g][m] || 0) }));
+  F2.push({ lab:"Coste total personal", v:M.map((m,i) => sum(F2, f => f.v[i])), b:true });
+  tablaMeses(box, "Coste por clasificación", F2, M);
+  const P2 = grupos.map(g => ({ lab:g, n:true, v:M.map(m => g === "ETT" ? new Set(D.act.filter(a => a.periodo === m).map(a => a.codigo)).size
+    : new Set(D.nomina.filter(n => n.periodo === m && (n.bruto || n.coste_empresa) && clasDe(D.porCodigo.get(n.codigo)) === g).map(n => n.codigo)).size) }));
+  tablaMeses(box, "Personas por clasificación", P2, M);
   const avisos = avisosEtt(S); if (avisos.length){ const c = el("div","card"); c.append(el("h3",null,"A revisar")); const ul = el("ul"); for (const a of avisos) ul.append(el("li",null,a)); c.append(ul); box.append(c); }
-  box.append(el("p","hint","Nómina ordinaria = coste de empresa sin indemnizaciones ni la paga extra que se paga aparte (la de Navidad va prorrateada en cada nómina). ETT = facturas de las ETT en Tesorería, por mes de la factura, sin IVA. Las personas en IT pueden salir con coste bajo o negativo por el pago delegado."));
+  box.append(el("p","hint","Nómina ordinaria = coste de empresa del mes sin indemnizaciones. Paga extra de verano = la prorrata mensual que calcula la nómina (la paga se cobra en junio pero se devenga todo el año; su Seguridad Social ya va en la cotización de cada mes). ETT = facturas de las ETT en Tesorería, por mes de la factura y sin IVA. Personas ETT según los contratos de cada ficha."));
 }
 function avisosEtt(S){
   const out = [], emp = [...new Set(R.data.fact.map(f => f.empresa_ett))];
@@ -177,42 +172,51 @@ function avisosEtt(S){
 }
 const ultimoMes = c => { let u = null; for (const n of R.data.nomina) if (n.codigo === c && (n.bruto || n.coste_total) && (!u || n.periodo > u)) u = n.periodo; return u; };
 
-// ---------- Por sección ----------
+// ---------- Por sección: clasificación › departamento › puesto › persona ----------
 function tabSeccion(box){
-  const M = meses(), D = R.data;
-  const c = el("div","ctrl");
-  const sg = el("div","seg"); for (const [k,l] of [["departamento","Departamento"],["area","Área"],["clasificacion","Clasificación"],["grupo","Grupo profesional"],["tipo_vinculo","Vínculo"]]){ const b = el("button",null,l); b.type = "button"; b.setAttribute("aria-pressed", String(R.agr === k)); b.addEventListener("click", () => { R.agr = k; render(); }); sg.append(b); }
-  const d1 = el("div","fld"); d1.append(el("span",null,"Agrupar por"), sg); c.append(d1);
-  const lb = el("label","chk"); const cb = el("input"); cb.type = "checkbox"; cb.checked = R.repartirEtt; cb.addEventListener("change", () => { R.repartirEtt = cb.checked; render(); }); lb.append(cb, " Incluir ETT repartida por días (estimación)"); c.append(lb);
-  box.append(c);
-  const G = new Map(), P = new Map();
-  const add = (g, m, v, cod) => { const x = G.get(g) || {}; x[m] = (x[m] || 0) + v; G.set(g, x); const y = P.get(g) || {}; (y[m] = y[m] || new Set()).add(cod); P.set(g, y); };
-  for (const n of D.nomina) if (M.includes(n.periodo)){ const p = D.porCodigo.get(n.codigo); add(grupoDe(p), n.periodo, n.coste_ordinario, (n.bruto || n.coste_total) ? n.codigo : null); }
-  if (R.repartirEtt) for (const m of M){ const rp = repartoEtt(m); for (const [cod, v] of rp) add(grupoDe(D.porCodigo.get(cod)), m, v, cod); }
-  const orden = R.agr === "departamento" ? new Map(D.deps.map((d,i) => [d.nombre, i])) : null;
-  const filas = [...G.entries()].map(([g,x]) => ({ g, x, t:sum(M, m => x[m]) })).sort((a,b) => a.g === "Sin asignar" ? 1 : b.g === "Sin asignar" ? -1 : orden ? (orden.get(a.g) ?? 999) - (orden.get(b.g) ?? 999) : b.t - a.t);
-  const TT = sum(filas, f => f.t);
-  const tw = el("div","tblwrap"); const t = el("table","tbl"); const hr = el("tr"); hr.append(el("th",null,"Grupo")); for (const m of M) hr.append(el("th","n",mesLab(m))); for (const h of ["Total","Media mes","Var. últ./1.º","% s/total","Personas (media)","Coste/persona mes"]) hr.append(el("th","n",h)); t.append(el("thead")); t.tHead.append(hr);
-  const tb = el("tbody");
-  for (const f of filas){
-    const tr = el("tr"); tr.append(el("td",null,f.g)); for (const m of M) tr.append(el("td","n",eur(f.x[m])));
-    const pm = M.map(m => ((P.get(f.g) || {})[m] || new Set()).size - (((P.get(f.g) || {})[m] || new Set()).has(null) ? 1 : 0));
-    const pmed = sum(pm, x => x) / (M.length || 1), v0 = f.x[M[0]], v1 = f.x[M[M.length-1]];
-    tr.append(el("td","n",eur(f.t)), el("td","n",eur(f.t / (M.length || 1))), el("td","n " + (v0 && v1 > v0 ? "up" : v0 && v1 < v0 ? "down" : ""), v0 ? varf(v1 / v0 - 1) : ""), el("td","n",pctf(TT ? f.t / TT : null)), el("td","n",pmed.toLocaleString("es-ES",{maximumFractionDigits:1})), el("td","n",eur(sum(pm,x=>x) ? f.t / sum(pm,x=>x) : null)));
-    tb.append(tr);
-  }
-  const tr = el("tr","wk"); tr.append(el("td",null,"Total")); for (const m of M) tr.append(el("td","n",eur(sum(filas, f => f.x[m])))); tr.append(el("td","n",eur(TT)), el("td","n",eur(TT / (M.length || 1))), el("td"), el("td","n","100 %"), el("td"), el("td")); tb.append(tr);
-  t.append(tb); tw.append(t);
-  const cc = el("div","charts"); const card = el("div","card chartcard"); card.append(el("h3",null,"Coste ordinario por " + ({departamento:"departamento",area:"área",clasificacion:"clasificación",grupo:"grupo profesional",tipo_vinculo:"vínculo"})[R.agr] + " (€)")); const cv = el("canvas"); card.append(cv); cc.append(card); box.append(cc, tw);
-  requestAnimationFrame(() => { if (!window.Chart || !cv.isConnected) return;
-    charts.push(new Chart(cv, { type:"bar", data:{ labels:M.map(mesLab), datasets:filas.map((f,i) => ({ label:f.g, data:M.map(m => Math.round(f.x[m] || 0)), backgroundColor: f.g === "Sin asignar" ? "#D9D6CF" : PALETA[i % PALETA.length], stack:"s" })) },
-      options:{ maintainAspectRatio:false, plugins:{ legend:{ position:"bottom", labels:{ boxWidth:12 } }, tooltip:{ callbacks:{ label:c => `${c.dataset.label}: ${eur(c.raw)} €` } } }, scales:{ x:{ stacked:true }, y:{ stacked:true, ticks:{ callback:v => eur(v) } } } } })); });
-  const sa = filas.find(f => f.g === "Sin asignar");
-  box.append(el("p","hint", (sa && TT ? `«Sin asignar» = personas sin ${R.agr === "departamento" || R.agr === "area" ? "departamento" : "clasificación"} en su ficha (${pctf(sa.t / TT)} del coste). Complétalo en «Ficha de personas». ` : "") + "Coste ordinario: sin indemnizaciones ni paga extra." + (R.repartirEtt ? " La ETT se reparte entre sus personas en activo según los días de contrato de cada mes: es una estimación." : "")));
+  ctrlIndem(box);
+  const M = meses(), D = R.data, hojas = [];
+  const by = new Map(); for (const n of D.nomina) if (M.includes(n.periodo)){ const x = by.get(n.codigo) || {}; x[n.periodo] = (x[n.periodo] || 0) + costeDev(n); by.set(n.codigo, x); }
+  const ruta = p => [clasDe(p), (p && p.departamento) || "Sin departamento", (p && (p.puesto || p.categoria)) || "Sin puesto"];
+  for (const [cod, x] of by){ const p = D.porCodigo.get(cod); hojas.push({ ruta:ruta(p), nombre:(p ? p.nombre : cod), cod, v:x }); }
+  // ETT: coste de las facturas repartido entre sus personas por días de contrato en el mes (estimación)
+  const ettPers = new Map(); let sinAsig = {};
+  for (const m of M){ const rp = repartoEtt(m), fac = sum(Object.values(ettMes(m)), x => x); let asig = 0;
+    for (const [cod, v] of rp){ const x = ettPers.get(cod) || {}; x[m] = (x[m] || 0) + v; ettPers.set(cod, x); asig += v; }
+    if (Math.abs(fac - asig) > 0.5) sinAsig[m] = fac - asig; }
+  for (const [cod, x] of ettPers){ const p = D.porCodigo.get(cod); hojas.push({ ruta:ruta(p), nombre:p.nombre, cod, v:x, est:true }); }
+  if (Object.keys(sinAsig).length) hojas.push({ ruta:["ETT","Sin asignar","—"], nombre:"Facturas ETT sin personas en contrato ese mes", v:sinAsig, est:true });
+  // árbol
+  const raiz = { hijos:new Map(), v:{} };
+  for (const h of hojas){ let nodo = raiz; const add = n => { for (const m of M) n.v[m] = (n.v[m] || 0) + (h.v[m] || 0); };
+    add(nodo); h.ruta.forEach((k, i) => { if (!nodo.hijos.has(k)) nodo.hijos.set(k, { k, nivel:i, id:h.ruta.slice(0,i+1).join("›"), hijos:new Map(), v:{}, pers:[] }); nodo = nodo.hijos.get(k); add(nodo); }); nodo.pers.push(h); }
+  const tot = n => sum(M, m => n.v[m]);
+  const ordenar = (arr, nivel) => arr.sort((a,b) => nivel === 0 ? ((ORDEN_CLAS.indexOf(a.k) + 99) % 99) - ((ORDEN_CLAS.indexOf(b.k) + 99) % 99) : tot(b) - tot(a));
+  const c = el("div","ctrl"); const ab = el("button","btn small","Desplegar todo"); ab.addEventListener("click", () => { const marca = n => { for (const h of n.hijos.values()){ R.abiertos.add(h.id); marca(h); } }; marca(raiz); render(); });
+  const cb = el("button","btn small","Plegar todo"); cb.addEventListener("click", () => { R.abiertos.clear(); render(); }); c.append(ab, cb); box.append(c);
+  const tw = el("div","tblwrap"); const t = el("table","tbl"); const hr = el("tr"); hr.append(el("th",null,"Clasificación › departamento › puesto › persona")); for (const m of M) hr.append(el("th","n",mesLab(m))); for (const h of ["Total","Media mes","% s/total"]) hr.append(el("th","n",h)); t.append(el("thead")); t.tHead.append(hr);
+  const tb = el("tbody"), TT = tot(raiz);
+  const fila = (lab, v, nivel, opts) => { const tr = el("tr", opts.cls || null); const td = el("td"); td.style.paddingLeft = (10 + nivel * 18) + "px"; td.style.whiteSpace = "nowrap";
+    if (opts.toggle){ td.append(el("span","chev", opts.open ? "▾ " : "▸ ")); tr.style.cursor = "pointer"; tr.addEventListener("click", opts.toggle); }
+    if (opts.bold) td.append(el("b",null,lab)); else td.append(lab); if (opts.est) td.append(el("small",null," (estimado)")); tr.append(td);
+    for (const m of M) tr.append(el("td","n",eur(v[m] || 0))); const tt = sum(M, m => v[m]); tr.append(el("td","n",eur(tt)), el("td","n",eur(tt / (M.length || 1))), el("td","n",pctf(TT ? tt / TT : null)));
+    if (opts.click) { tr.style.cursor = "pointer"; tr.title = "Abrir la ficha"; tr.addEventListener("click", opts.click); } tb.append(tr); };
+  const pinta = (nodo) => { for (const h of ordenar([...nodo.hijos.values()], nodo.nivel == null ? 0 : nodo.nivel + 1)){
+      const open = R.abiertos.has(h.id);
+      fila(h.k, h.v, h.nivel, { bold: h.nivel === 0, cls: h.nivel === 0 ? "wk" : null, open, toggle: () => { open ? R.abiertos.delete(h.id) : R.abiertos.add(h.id); render(); } });
+      if (!open) continue;
+      if (h.hijos.size) pinta(h);
+      else for (const p of h.pers.sort((a,b) => sum(M, m => b.v[m]) - sum(M, m => a.v[m]))) fila(p.nombre, p.v, 3, { est:p.est, click: p.cod && D.porCodigo.get(p.cod) ? () => ficha(D.porCodigo.get(p.cod)) : null });
+    } };
+  pinta(raiz);
+  fila("Coste total personal", raiz.v, 0, { bold:true, cls:"wk" });
+  t.append(tb); tw.append(t); box.append(tw);
+  box.append(el("p","hint","Pulsa una fila para desplegarla; en el último nivel, pulsa una persona para abrir su ficha. Coste = nómina de empresa con la paga extra de verano prorrateada" + (R.indem ? " e indemnizaciones" : ", sin indemnizaciones") + ". La ETT se reparte entre sus personas según los días de contrato de cada mes: es una estimación. «Sin departamento» / «Sin puesto» = datos pendientes en la ficha."));
 }
 
 // ---------- Por empleado ----------
 function tabEmpleado(box){
+  ctrlIndem(box);
   const M = meses(), D = R.data;
   const c = el("div","ctrl");
   const qd = el("div","fld"); const q = el("input"); q.type = "search"; q.placeholder = "Nombre o código"; q.value = R.fe.q; q.dataset.k = "rr-eq"; q.addEventListener("input", () => { R.fe.q = q.value; render(); }); qd.append(el("span",null,"Buscar"), q); c.append(qd);
@@ -222,18 +226,18 @@ function tabEmpleado(box){
   const qq = R.fe.q.trim().toLowerCase();
   const L = [...by.entries()].map(([cod, x]) => ({ cod, x, p: D.porCodigo.get(cod) || { codigo:cod, nombre:"(sin ficha)" } }))
     .filter(r => (!qq || `${r.p.nombre} ${r.cod}`.toLowerCase().includes(qq)) && (!R.fe.dep || (r.p.departamento || "Sin asignar") === R.fe.dep))
-    .map(r => ({ ...r, tot: sum(M, m => (r.x[m] || {}).coste_total), ord: sum(M, m => (r.x[m] || {}).coste_ordinario), nm: M.filter(m => r.x[m] && (r.x[m].bruto || r.x[m].coste_total)).length }))
+    .map(r => ({ ...r, tot: sum(M, m => r.x[m] ? costeDev(r.x[m]) : 0), ord: sum(M, m => r.x[m] ? r.x[m].coste_empresa - r.x[m].indemnizacion + r.x[m].prorrata_extra : 0), nm: M.filter(m => r.x[m] && (r.x[m].bruto || r.x[m].coste_total)).length }))
     .sort((a,b) => b.tot - a.tot);
   const tw = el("div","tblwrap"); const t = el("table","tbl"); const hr = el("tr");
   for (const h of ["Código","Nombre","Departamento"]) hr.append(el("th",null,h)); for (const m of M) hr.append(el("th","n",mesLab(m))); for (const h of ["Total","Ordinario medio/mes","Meses"]) hr.append(el("th","n",h)); t.append(el("thead")); t.tHead.append(hr);
   const tb = el("tbody");
   for (const r of L){ const tr = el("tr"); tr.style.cursor = "pointer"; tr.title = "Abrir la ficha"; tr.addEventListener("click", () => { if (R.data.porCodigo.get(r.cod)) ficha(R.data.porCodigo.get(r.cod)); });
     tr.append(el("td",null,r.cod), el("td",null,r.p.nombre), el("td",null,r.p.departamento || "—"));
-    for (const m of M){ const n = r.x[m]; const td = el("td","n", n ? eur(n.coste_total) : ""); if (n && (n.indemnizacion || n.paga_extra)){ td.title = `Incluye ${n.indemnizacion ? "indemnización " + eur(n.indemnizacion) + " €" : ""}${n.indemnizacion && n.paga_extra ? " y " : ""}${n.paga_extra ? "paga extra " + eur(n.paga_extra) + " €" : ""}`; td.style.fontWeight = "700"; } tr.append(td); }
+    for (const m of M){ const n = r.x[m]; const td = el("td","n", n ? eur(costeDev(n)) : ""); if (n && R.indem && n.indemnizacion){ td.title = `Incluye indemnización ${eur(n.indemnizacion)} €`; td.style.fontWeight = "700"; } tr.append(td); }
     tr.append(el("td","n",eur(r.tot)), el("td","n",eur(r.nm ? r.ord / r.nm : 0)), el("td","n",String(r.nm))); tb.append(tr); }
-  const tr = el("tr","wk"); tr.append(el("td"), el("td",null,`Total (${L.length} personas)`), el("td")); for (const m of M) tr.append(el("td","n",eur(sum(L, r => (r.x[m] || {}).coste_total)))); tr.append(el("td","n",eur(sum(L, r => r.tot))), el("td"), el("td")); tb.append(tr);
+  const tr = el("tr","wk"); tr.append(el("td"), el("td",null,`Total (${L.length} personas)`), el("td")); for (const m of M) tr.append(el("td","n",eur(sum(L, r => r.x[m] ? costeDev(r.x[m]) : 0)))); tr.append(el("td","n",eur(sum(L, r => r.tot))), el("td"), el("td")); tb.append(tr);
   t.append(tb); tw.append(t); box.append(tw);
-  box.append(el("p","hint","Coste de empresa real de cada mes (incluye indemnizaciones y paga extra, en negrita). Pulsa una fila para abrir la ficha."));
+  box.append(el("p","hint","Coste de empresa de cada mes con la paga extra de verano prorrateada" + (R.indem ? "; en negrita, los meses con indemnización." : ", sin indemnizaciones.") + " Pulsa una fila para abrir la ficha."));
 }
 
 // ---------- Ficha de personas ----------
@@ -355,20 +359,20 @@ function retribucion(codigo){
   const limpio = N.filter(n => n.bruto > 0 && !n.it_enfermedad && !n.indemnizacion && !n.vacaciones_finiquito);
   const ref = (limpio.length ? limpio : N)[(limpio.length ? limpio : N).length - 1];
   const tipoIrpf = ref.bruto ? ref.irpf / ref.bruto : 0;
-  const a = { bruto: ref.base_cc * 12, ssEmp: ref.ss_empresa * 12, ss: ref.ss_trabajador * 12 };
+  const a = { bruto: (ref.bruto + ref.prorrata_extra) * 12, base: ref.base_cc * 12, ssEmp: ref.ss_empresa * 12, ss: ref.ss_trabajador * 12 };
   a.coste = a.bruto + a.ssEmp; a.irpf = a.bruto * tipoIrpf; a.liq = a.bruto - a.ss - a.irpf;
   const anio = ref.periodo.slice(0,4), Y = R.data.nomina.filter(n => n.codigo === codigo && n.periodo.startsWith(anio));
   const real = { bruto: sum(Y, n => n.bruto + n.paga_extra), ssEmp: sum(Y, n => n.ss_empresa), ss: sum(Y, n => n.ss_trabajador), irpf: sum(Y, n => n.irpf + n.paga_extra_irpf),
     liq: sum(Y, n => n.liquido + n.paga_extra_liquido), otras: sum(Y, n => n.otras_deducciones), coste: sum(Y, n => n.coste_total),
     desde: Y.length ? Y[0].periodo : null, hasta: Y.length ? Y[Y.length-1].periodo : null };
-  return { ref, a, real, tipoIrpf, tope: ref.base_cc >= TOPE_BASE - 0.5, limpio: !!limpio.length };
+  return { ref, a, real, tipoIrpf, tope: ref.base_cc >= TOPE_BASE - 0.5 && (ref.bruto + ref.prorrata_extra) > ref.base_cc + 1, limpio: !!limpio.length };
 }
 function tarjetaRetribucion(r){
   const c = el("div","card"); c.style.margin = "4px 0 12px";
   c.append(el("b",null,"Retribución"));
   const t = el("table","tbl"); const hr = el("tr"); for (const h of ["","Mensual (12 pagas)","Anual estimado",`Real ${mesLab(r.real.desde)} – ${mesLab(r.real.hasta)}`]) hr.append(el("th", h ? "n" : null, h)); t.append(el("thead")); t.tHead.append(hr);
   const tb = el("tbody"); const fila = (lab, a, real, b) => { const tr = el("tr", b ? "wk" : null); tr.append(el("td",null,lab), el("td","n",eur(a / 12) + " €"), el("td","n",eur(a) + " €"), el("td","n",real == null ? "" : eur(real) + " €")); tb.append(tr); };
-  fila("Bruto (base de cotización)", r.a.bruto, r.real.bruto);
+  fila("Bruto", r.a.bruto, r.real.bruto);
   fila("+ Seguridad Social empresa", r.a.ssEmp, r.real.ssEmp);
   fila("Coste empresa", r.a.coste, r.real.coste, true);
   fila("– Seguridad Social trabajador", r.a.ss, r.real.ss);
@@ -376,7 +380,7 @@ function tarjetaRetribucion(r){
   if (r.real.otras) fila("– Otras deducciones (embargos, anticipos…)", 0, r.real.otras);
   fila("Líquido", r.a.liq, r.real.liq, true);
   t.append(tb); c.append(t);
-  c.append(el("p","hint",`Estimación con la nómina de ${mesLab(r.ref.periodo)}${r.limpio ? "" : " (con incidencias: IT, finiquito o indemnización)"}: bruto anual = base de cotización × 12 (incluye la prorrata de las pagas extra); coste = bruto + Seguridad Social de empresa; IRPF al tipo efectivo de ese mes.${r.tope ? " Su base está en el tope de cotización: el bruto real es mayor que la base." : ""}${r.real.ssEmp < 0 ? " La Seguridad Social de empresa real sale negativa por los meses de IT: la empresa adelanta la prestación y la descuenta de sus cotizaciones (pago delegado)." : ""} «Real» suma lo pagado en el año, incluida la paga extra.`));
+  c.append(el("p","hint",`Estimación con la nómina de ${mesLab(r.ref.periodo)}${r.limpio ? "" : " (con incidencias: IT, finiquito o indemnización)"}: bruto anual = 12 × (bruto de la nómina, que ya lleva la paga de Navidad prorrateada + prorrata de la paga de verano); coste = bruto + Seguridad Social de empresa; IRPF al tipo efectivo de ese mes.${r.tope ? ` Su base de cotización está en el tope (${eur(r.a.base)} € al año): cotiza por menos de lo que cobra.` : ""}${r.real.ssEmp < 0 ? " La Seguridad Social de empresa real sale negativa por los meses de IT: la empresa adelanta la prestación y la descuenta de sus cotizaciones (pago delegado)." : ""} «Real» suma lo pagado en el año, incluida la paga extra.`));
   return c;
 }
 function sigCodigoEtt(){ const n = R.data.personas.map(p => /^ETT(\d+)$/.exec(p.codigo)).filter(Boolean).map(m => +m[1]); return "ETT" + String((n.length ? Math.max(...n) : 0) + 1).padStart(3,"0"); }
@@ -419,11 +423,11 @@ async function cargarNomina(file){
     const periodo = `${m[3]}-${m[2]}-01`, extra = /paga extra/i.test(titulo);
     const ids = H.slice(4, ti).map(c => txt(c).padStart(6, "0"));
     const nom = ids.map((_, i) => [A[hi+1], A[hi+2], A[hi+3]].map(r => txt((r || [])[4 + i])).filter(Boolean).join(" "));
-    const acc = ids.map(() => ({ bruto:0, ss_empresa:0, coste_empresa:0, indemnizacion:0, it_enfermedad:0, vacaciones_finiquito:0, horas_presencia:0, base_cc:0, ss_trabajador:0, irpf:0, liquido:0, deducciones:0 }));
+    const acc = ids.map(() => ({ bruto:0, ss_empresa:0, coste_empresa:0, indemnizacion:0, it_enfermedad:0, vacaciones_finiquito:0, horas_presencia:0, base_cc:0, ss_trabajador:0, irpf:0, liquido:0, deducciones:0, prorrata_extra:0 }));
     for (const r of A.slice(hi + 4)){ if (!r) continue; const lab = txt(r[2]) || txt(r[1]); if (!lab) continue;
       const k = lab === "TOTAL BRUTO" ? "bruto" : lab === "SEGURIDAD SOCIAL EMPRESA" ? "ss_empresa" : lab === "COSTE EMPRESA" ? "coste_empresa" : /^Indemnizaci/i.test(lab) ? "indemnizacion"
         : lab === "HORAS PRESENCIA" ? "horas_presencia" : /^(Enfermedad|Prest\.Enfermedad|Complemento I\.T|Complemento Enfermedad)/i.test(lab) ? "it_enfermedad" : /^Parte Proporcional Vacaciones/i.test(lab) ? "vacaciones_finiquito" : lab === "BASE CONTINGENCIAS COMUNES" ? "base_cc" : /^Cotización/i.test(lab) ? "ss_trabajador"
-        : /^Tributación IRPF/i.test(lab) ? "irpf" : lab === "TOTAL LIQUIDO" ? "liquido" : lab === "TOTAL DEDUCCIONES" ? "deducciones" : null;
+        : /^Tributación IRPF/i.test(lab) ? "irpf" : lab === "TOTAL LIQUIDO" ? "liquido" : lab === "TOTAL DEDUCCIONES" ? "deducciones" : lab === "PRORRATA PAGAS EXTRAS" ? "prorrata_extra" : null;
       if (!k) continue; ids.forEach((_, i) => { const v = +r[4 + i]; if (isFinite(v)) acc[i][k] += v; }); }
     const round = x => Math.round(x * 100) / 100;
     const total = acc.reduce((s, a) => s + a.coste_empresa, 0);
@@ -436,7 +440,7 @@ async function cargarNomina(file){
     if (c.error) throw c.error;
     const rows = ids.map((cod, i) => extra ? { periodo, codigo:cod, paga_extra:round(acc[i].coste_empresa), paga_extra_irpf:round(acc[i].irpf), paga_extra_liquido:round(acc[i].liquido) }
       : (({ deducciones, ...a }) => Object.assign({ periodo, codigo:cod, carga_id:c.data.id, otras_deducciones:round(deducciones - a.ss_trabajador - a.irpf) }, Object.fromEntries(Object.entries(a).map(([k,v]) => [k, round(v)]))))(acc[i]));
-    if (!extra){ const del = await sch().from("nomina_mensual").update({ coste_empresa:0, bruto:0, ss_empresa:0, indemnizacion:0, it_enfermedad:0, vacaciones_finiquito:0, horas_presencia:0, base_cc:0, ss_trabajador:0, irpf:0, otras_deducciones:0, liquido:0 }).eq("periodo", periodo).not("codigo","in",`(${ids.map(x => `"${x}"`).join(",")})`); if (del.error) throw del.error; }
+    if (!extra){ const del = await sch().from("nomina_mensual").update({ coste_empresa:0, bruto:0, ss_empresa:0, indemnizacion:0, it_enfermedad:0, vacaciones_finiquito:0, horas_presencia:0, base_cc:0, ss_trabajador:0, irpf:0, otras_deducciones:0, liquido:0, prorrata_extra:0 }).eq("periodo", periodo).not("codigo","in",`(${ids.map(x => `"${x}"`).join(",")})`); if (del.error) throw del.error; }
     const up = await sch().from("nomina_mensual").upsert(rows, { onConflict:"periodo,codigo" }); if (up.error) throw up.error;
     set(`Hecho: ${extra ? "paga extra" : "nómina"} de ${mesLab(periodo)} cargada (${ids.length} personas${nuevos.length ? `, ${nuevos.length} altas nuevas: completa su ficha` : ""}).`);
     toast("Nómina cargada"); if (nuevos.length){ R.tab = "personas"; R.f.incompletas = true; } recargar();
@@ -446,14 +450,14 @@ async function cargarNomina(file){
 // ---------- Exportar ----------
 function exportar(){
   const wb = XLSX.utils.book_new(), M = meses(), S = serieMensual();
-  const A = [["Mes","Personas nómina","Nómina ordinaria","Indemnizaciones","Paga extra","Total nómina","ETT sin IVA","Coste total","% ETT","Personas ETT"]];
-  for (const s of S) A.push([mesLab(s.m), s.pers, Math.round(s.ord), Math.round(s.ind), Math.round(s.ext), Math.round(s.nom), Math.round(s.ett), Math.round(s.tot), s.tot ? Math.round(s.ett / s.tot * 1000) / 1000 : 0, s.ettN]);
+  const A = [["Mes","Personas nómina","Nómina ordinaria", ...(R.indem ? ["Indemnizaciones"] : []),"Paga extra verano (prorrata)","Total nómina","ETT sin IVA","Coste total","Personas ETT"]];
+  for (const s of S) A.push([mesLab(s.m), s.pers, Math.round(s.ord), ...(R.indem ? [Math.round(s.ind)] : []), Math.round(s.ext), Math.round(s.nom), Math.round(s.ett), Math.round(s.tot), s.ettN]);
   XLSX.utils.book_append_sheet(wb, sheet(A, [10,10,14,14,12,14,12,14,8,10]), "Resumen");
-  const B = [["Código","Nombre","Vínculo","Empresa ETT","Clasificación","Grupo profesional","Departamento","Puesto","Categoría","Contrato","Alta","Baja","Motivo baja","Pendiente","Mes de referencia","Bruto anual (base x 12)","Coste empresa anual","SS trabajador anual","IRPF anual","Líquido anual","Líquido mensual"]];
+  const B = [["Código","Nombre","Vínculo","Empresa ETT","Clasificación","Grupo profesional","Departamento","Puesto","Categoría","Contrato","Alta","Baja","Motivo baja","Pendiente","Mes de referencia","Bruto anual","Coste empresa anual","SS trabajador anual","IRPF anual","Líquido anual","Líquido mensual"]];
   for (const p of R.data.personas) B.push([p.codigo, p.nombre, p.tipo_vinculo, p.empresa_ett || "", p.clasificacion || "", p.grupo_profesional || "", p.departamento || "", p.puesto || "", p.categoria || "", p.tipo_contrato || "", p.fecha_alta || "", p.fecha_baja || "", p.motivo_baja || "", pendientes(p).join(", "), ...(r => r ? [mesLab(r.ref.periodo), Math.round(r.a.bruto), Math.round(r.a.coste), Math.round(r.a.ss), Math.round(r.a.irpf), Math.round(r.a.liq), Math.round(r.a.liq / 12)] : [])(retribucion(p.codigo))]);
   XLSX.utils.book_append_sheet(wb, sheet(B, [9,32,9,12,10,14,20,18,14,22,11,11,20,30,10,14,14,14,12,14,12]), "Personas");
   const C = [["Código","Nombre","Clasificación","Departamento", ...M.map(mesLab), "Total"]];
-  const by = new Map(); for (const n of R.data.nomina) if (M.includes(n.periodo)){ const x = by.get(n.codigo) || {}; x[n.periodo] = n.coste_total; by.set(n.codigo, x); }
+  const by = new Map(); for (const n of R.data.nomina) if (M.includes(n.periodo)){ const x = by.get(n.codigo) || {}; x[n.periodo] = costeDev(n); by.set(n.codigo, x); }
   for (const [cod, x] of by){ const p = R.data.porCodigo.get(cod) || {}; C.push([cod, p.nombre || "", p.clasificacion || "", p.departamento || "", ...M.map(m => Math.round((x[m] || 0) * 100) / 100), Math.round(sum(M, m => x[m]) * 100) / 100]); }
   XLSX.utils.book_append_sheet(wb, sheet(C, [9,32,10,20, ...M.map(() => 11), 12]), "Coste por empleado");
   saveXlsx(wb, `Costes_personal_${stamp()}.xlsx`);
