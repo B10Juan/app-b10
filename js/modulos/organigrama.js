@@ -144,6 +144,7 @@ export function renderOrganigrama(app){
   c.append(acc); box.append(c);
   if (!org){ box.append(el("div","card empty", ed ? "Todavía no hay ningún organigrama. Pulsa «Nuevo organigrama» para empezar." : "Todavía no hay ningún organigrama.")); return; }
 
+  if (ed) box.append(barraAnadir());
   const { marco, L } = vista(org, O.nodos, ed ? n => editarNodo(n, null) : null);
   const card = el("div","card"); card.style.padding = "10px"; card.append(marco); box.append(card);
   const avisos = [];
@@ -154,14 +155,24 @@ export function renderOrganigrama(app){
   tablaEstructura(box, ed);
 }
 
+// Botones para añadir cajas (encima del dibujo y de la tabla)
+function barraAnadir(){
+  const N = O.nodos, a = el("div","org-anadir"); a.append(el("b",null,"Añadir caja:"));
+  const b = (t, tipo, tit) => { const x = el("button","btn small", t); x.type = "button"; x.title = tit; x.addEventListener("click", () => editarNodo(null, tipo)); a.append(x); };
+  if (!N.some(n => n.tipo === "direccion")) b("+ Dirección general","direccion","Caja superior (azul oscuro)");
+  b("+ Apoyo a DG (staff)","staff","Cajas con borde naranja a los lados de la Dirección General");
+  b("+ Dirección / pilar","pilar","Cajas azules de la fila principal, debajo de la Dirección General");
+  if (N.some(n => n.tipo === "pilar")) b("+ Departamento","departamento","Cajas verdes debajo de cada dirección / pilar");
+  else a.append(el("span","hint","Los departamentos se cuelgan de una dirección / pilar: crea primero los pilares."));
+  return a;
+}
+
 // Lista editable de la estructura
 function tablaEstructura(box, ed){
   box.append(el("h3",null,"Estructura"));
   const N = O.nodos, ord = (a,b) => a.orden - b.orden || a.id - b.id;
   const dir = N.filter(n => n.tipo === "direccion").sort(ord), staff = N.filter(n => n.tipo === "staff").sort(ord), pil = N.filter(n => n.tipo === "pilar").sort(ord);
-  if (ed){ const a = el("div"); a.style.cssText = "display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px";
-    const b = (t, tipo) => { const x = el("button","btn small", t); x.type = "button"; x.addEventListener("click", () => editarNodo(null, tipo)); a.append(x); };
-    if (!dir.length) b("+ Dirección general","direccion"); b("+ Apoyo a DG (staff)","staff"); b("+ Dirección / pilar","pilar"); if (pil.length) b("+ Departamento","departamento"); box.append(a); }
+  if (ed) box.append(barraAnadir());
   const tw = el("div","tblwrap"); const t = el("table","tbl"); const hr = el("tr"); for (const h of ["Nivel","Nombre","Responsable","Descripción", ed ? "" : null].filter(x => x !== null)) hr.append(el("th",null,h)); t.append(el("thead")); t.tHead.append(hr);
   const tb = el("tbody");
   const fila = (n, grupo, sangria) => { const tr = el("tr"); const tn = el("td"); tn.style.paddingLeft = (10 + sangria * 22) + "px"; tn.append(el("b",null,n.titulo));
@@ -216,6 +227,11 @@ function editarNodo(n, tipoNuevo){
     else r = await sch().from("organigrama_nodos").update(reg).eq("id", base.id);
     if (r.error){ console.error(r.error); err.textContent = "No se ha podido guardar."; return; }
     dlg.close(); toast("Guardado"); recargar(); });
+  if (!nuevo && (base.tipo === "direccion" || base.tipo === "pilar")){ const ad = el("div"); ad.style.cssText = "display:flex;gap:8px;flex-wrap:wrap;margin-top:6px";
+    const b = (t, fn) => { const x = el("button","btn small", t); x.type = "button"; x.addEventListener("click", () => { dlg.close(); fn(); }); ad.append(x); };
+    if (base.tipo === "direccion"){ b("+ Dirección / pilar debajo", () => editarNodo(null, "pilar")); b("+ Apoyo a DG al lado", () => editarNodo(null, "staff")); }
+    else b("+ Departamento debajo", () => editarNodo({ tipo:"departamento", padre_id:base.id }, "departamento"));
+    f.insertBefore(ad, err); }
   if (!nuevo){ const del = el("button","btn small","Eliminar caja"); del.type = "button"; del.style.marginTop = "6px"; del.addEventListener("click", () => { dlg.close(); eliminarNodo(base); }); f.insertBefore(del, err); }
   dlg.showModal(); tit.focus();
 }
