@@ -34,7 +34,7 @@ async function cargar(){
   try{
     const [personas, nomina, deps, periodos, act] = await Promise.all([
       todo(() => sch().from("personas").select("*").order("codigo")),
-      todo(() => sch().from("nomina_mensual").select("periodo,codigo,bruto,ss_empresa,coste_empresa,indemnizacion,paga_extra,coste_total,coste_ordinario,horas_presencia").order("periodo")),
+      todo(() => sch().from("nomina_mensual").select("periodo,codigo,bruto,ss_empresa,coste_empresa,indemnizacion,it_enfermedad,vacaciones_finiquito,paga_extra,coste_total,coste_ordinario,horas_presencia,base_cc,ss_trabajador,irpf,otras_deducciones,liquido,paga_extra_irpf,paga_extra_liquido").order("periodo")),
       sch().from("departamentos").select("*").order("orden").then(r => { if (r.error) throw r.error; return r.data; }),
       todo(() => sch().from("ett_periodos").select("*").order("fecha_inicio")),
       todo(() => sch().from("v_ett_activos_mes").select("*")),
@@ -42,7 +42,7 @@ async function cargar(){
     let fact = [];
     try { fact = await todo(() => sch().from("v_ett_facturas").select("*").order("fecha_factura")); }
     catch(e){ console.warn("Sin facturas ETT", e); }
-    const num = r => { for (const k of ["bruto","ss_empresa","coste_empresa","indemnizacion","paga_extra","coste_total","coste_ordinario","horas_presencia"]) r[k] = +r[k] || 0; return r; };
+    const num = r => { for (const k of ["bruto","ss_empresa","coste_empresa","indemnizacion","it_enfermedad","vacaciones_finiquito","paga_extra","coste_total","coste_ordinario","horas_presencia","base_cc","ss_trabajador","irpf","otras_deducciones","liquido","paga_extra_irpf","paga_extra_liquido"]) r[k] = +r[k] || 0; return r; };
     R.data = { personas, nomina: nomina.map(num), deps, periodos, act, fact: fact.map(f => ({ ...f, base_imponible:+f.base_imponible || 0, importe_total:+f.importe_total || 0 })) };
     R.data.porCodigo = new Map(personas.map(p => [p.codigo, p]));
     const anios = [...new Set(nomina.map(n => +n.periodo.slice(0,4)))].sort();
@@ -68,7 +68,7 @@ function repartoEtt(m){
   }
   return out;
 }
-function grupoDe(p){ if (!p) return "Sin asignar"; const v = R.agr === "departamento" ? p.departamento : R.agr === "clasificacion" ? p.clasificacion : R.agr === "area" ? ((R.data.deps.find(d => d.nombre === p.departamento) || {}).area) : p.tipo_vinculo; return v || "Sin asignar"; }
+function grupoDe(p){ if (!p) return "Sin asignar"; const v = R.agr === "departamento" ? p.departamento : R.agr === "clasificacion" ? p.clasificacion : R.agr === "area" ? ((R.data.deps.find(d => d.nombre === p.departamento) || {}).area) : R.agr === "grupo" ? p.grupo_profesional : p.tipo_vinculo; return v || "Sin asignar"; }
 
 // ---------- pantalla ----------
 export function renderRrhh(app){
@@ -181,7 +181,7 @@ const ultimoMes = c => { let u = null; for (const n of R.data.nomina) if (n.codi
 function tabSeccion(box){
   const M = meses(), D = R.data;
   const c = el("div","ctrl");
-  const sg = el("div","seg"); for (const [k,l] of [["departamento","Departamento"],["area","Área"],["clasificacion","Clasificación"],["tipo_vinculo","Vínculo"]]){ const b = el("button",null,l); b.type = "button"; b.setAttribute("aria-pressed", String(R.agr === k)); b.addEventListener("click", () => { R.agr = k; render(); }); sg.append(b); }
+  const sg = el("div","seg"); for (const [k,l] of [["departamento","Departamento"],["area","Área"],["clasificacion","Clasificación"],["grupo","Grupo profesional"],["tipo_vinculo","Vínculo"]]){ const b = el("button",null,l); b.type = "button"; b.setAttribute("aria-pressed", String(R.agr === k)); b.addEventListener("click", () => { R.agr = k; render(); }); sg.append(b); }
   const d1 = el("div","fld"); d1.append(el("span",null,"Agrupar por"), sg); c.append(d1);
   const lb = el("label","chk"); const cb = el("input"); cb.type = "checkbox"; cb.checked = R.repartirEtt; cb.addEventListener("change", () => { R.repartirEtt = cb.checked; render(); }); lb.append(cb, " Incluir ETT repartida por días (estimación)"); c.append(lb);
   box.append(c);
@@ -203,7 +203,7 @@ function tabSeccion(box){
   }
   const tr = el("tr","wk"); tr.append(el("td",null,"Total")); for (const m of M) tr.append(el("td","n",eur(sum(filas, f => f.x[m])))); tr.append(el("td","n",eur(TT)), el("td","n",eur(TT / (M.length || 1))), el("td"), el("td","n","100 %"), el("td"), el("td")); tb.append(tr);
   t.append(tb); tw.append(t);
-  const cc = el("div","charts"); const card = el("div","card chartcard"); card.append(el("h3",null,"Coste ordinario por " + ({departamento:"departamento",area:"área",clasificacion:"clasificación",tipo_vinculo:"vínculo"})[R.agr] + " (€)")); const cv = el("canvas"); card.append(cv); cc.append(card); box.append(cc, tw);
+  const cc = el("div","charts"); const card = el("div","card chartcard"); card.append(el("h3",null,"Coste ordinario por " + ({departamento:"departamento",area:"área",clasificacion:"clasificación",grupo:"grupo profesional",tipo_vinculo:"vínculo"})[R.agr] + " (€)")); const cv = el("canvas"); card.append(cv); cc.append(card); box.append(cc, tw);
   requestAnimationFrame(() => { if (!window.Chart || !cv.isConnected) return;
     charts.push(new Chart(cv, { type:"bar", data:{ labels:M.map(mesLab), datasets:filas.map((f,i) => ({ label:f.g, data:M.map(m => Math.round(f.x[m] || 0)), backgroundColor: f.g === "Sin asignar" ? "#D9D6CF" : PALETA[i % PALETA.length], stack:"s" })) },
       options:{ maintainAspectRatio:false, plugins:{ legend:{ position:"bottom", labels:{ boxWidth:12 } }, tooltip:{ callbacks:{ label:c => `${c.dataset.label}: ${eur(c.raw)} €` } } }, scales:{ x:{ stacked:true }, y:{ stacked:true, ticks:{ callback:v => eur(v) } } } } })); });
@@ -255,13 +255,13 @@ function tabPersonas(box){
     kp("Fichas incompletas", String(act.filter(p => pendientes(p).length).length), "faltan datos obligatorios"),
     kp("% temporal", pctf(act.length ? act.filter(p => p.tipo_vinculo === "ETT" || p.tipo_contrato === "Temporal").length / act.length : null), "ETT + contrato temporal"));
   box.append(k);
-  const tw = el("div","tblwrap"); const t = el("table","tbl"); const hr = el("tr"); for (const h of ["Código","Nombre","Vínculo","Clasif.","Departamento","Puesto / categoría","Contrato","Alta","Baja","Pendiente"]) hr.append(el("th",null,h)); t.append(el("thead")); t.tHead.append(hr);
+  const tw = el("div","tblwrap"); const t = el("table","tbl"); const hr = el("tr"); for (const h of ["Código","Nombre","Vínculo","Clasif.","Grupo prof.","Departamento","Puesto / categoría","Contrato","Alta","Baja","Pendiente"]) hr.append(el("th",null,h)); t.append(el("thead")); t.tHead.append(hr);
   const tb = el("tbody");
   for (const p of L){ const tr = el("tr", activa(p) ? null : "paid"); tr.style.cursor = "pointer"; tr.addEventListener("click", () => ficha(p));
     const pend = pendientes(p); const tp = el("td"); for (const x of pend) { tp.append(el("span","tag warn",x), " "); }
-    tr.append(el("td",null,p.codigo), el("td",null,p.nombre), el("td",null,p.tipo_vinculo + (p.empresa_ett ? " · " + p.empresa_ett : "")), el("td",null,p.clasificacion || ""), el("td",null,p.departamento || ""), el("td",null,p.puesto || p.categoria || ""), el("td",null,p.tipo_contrato || ""), el("td",null,fec(p.fecha_alta)), el("td",null,fec(p.fecha_baja) + (p.motivo_baja ? ` (${p.motivo_baja})` : "")), tp);
+    tr.append(el("td",null,p.codigo), el("td",null,p.nombre), el("td",null,p.tipo_vinculo + (p.empresa_ett ? " · " + p.empresa_ett : "")), el("td",null,p.clasificacion || ""), el("td",null,p.grupo_profesional || ""), el("td",null,p.departamento || ""), el("td",null,p.puesto || p.categoria || ""), el("td",null,p.tipo_contrato || ""), el("td",null,fec(p.fecha_alta)), el("td",null,fec(p.fecha_baja) + (p.motivo_baja ? ` (${p.motivo_baja})` : "")), tp);
     tb.append(tr); }
-  if (!L.length){ const tr = el("tr"); const td = el("td","empty","No hay personas con estos filtros."); td.colSpan = 10; tr.append(td); tb.append(tr); }
+  if (!L.length){ const tr = el("tr"); const td = el("td","empty","No hay personas con estos filtros."); td.colSpan = 11; tr.append(td); tb.append(tr); }
   t.append(tb); tw.append(t); box.append(tw);
   box.append(el("p","hint","Pulsa una persona para ver o editar su ficha. Para guardar basta con el nombre y el código (y la empresa si es de ETT); el resto se puede completar después. Las fichas a las que les falten clasificación, departamento, contrato o fecha de alta salen como incompletas."));
 }
@@ -286,7 +286,9 @@ async function ficha(p){
   const blkNom = fila(campo("codigo","Código de nómina","text",null,true), campo("empleador","Empleador","text",null,false));
   f.append(blkEtt, blkNom);
   f.append(fila(campo("clasificacion","Clasificación","select",CLASIF,true), campo("departamento","Departamento / sección","select",D.deps.filter(d => d.activo !== false).map(d => d.nombre),true)));
-  f.append(fila(campo("puesto","Puesto","text"), campo("categoria","Categoría","text")));
+  f.append(fila(campo("grupo_profesional","Grupo profesional","text"), campo("puesto","Puesto","text")));
+  f.append(campo("categoria","Categoría","text"));
+  { const dl = el("datalist"); dl.id = "dlGrupos"; for (const g of [...new Set(D.personas.map(x => x.grupo_profesional).filter(Boolean))].sort()) dl.append(new Option(g)); f.append(dl); I.grupo_profesional.setAttribute("list","dlGrupos"); }
   f.append(fila(campo("tipo_contrato","Tipo de contrato","select",CONTRATOS,true), campo("fecha_alta","Fecha de alta","date",null,true)));
   let finPrev = null;
   if (nueva){ const d = el("div","f"); d.dataset.f = "fin"; finPrev = el("input"); finPrev.type = "date"; d.append(el("label",null,"Fin previsto del contrato (ETT)"), finPrev, el("span","hint","")); blkEtt.append(d); }
@@ -317,7 +319,7 @@ async function ficha(p){
     }
     const mv = await sch().from("movimientos").select("fecha,tipo,valor_anterior,valor_nuevo").eq("persona_id", p.id).order("fecha");
     if (mv.data && mv.data.length){ const det = el("details"); det.style.margin = "0 0 10px"; det.append(el("summary",null,`Historial (${mv.data.length})`)); const ul = el("ul"); for (const m of mv.data) ul.append(el("li",null,`${fec(m.fecha)} · ${m.tipo}${m.valor_anterior ? ": " + m.valor_anterior + " →" : ""}${m.valor_nuevo ? " " + m.valor_nuevo : ""}`)); det.append(ul); f.append(det); }
-    const N = D.nomina.filter(n => n.codigo === p.codigo); if (N.length){ f.append(el("p","hint",`Nómina: ${N.length} meses cargados, coste total ${eur(sum(N, n => n.coste_total))} €, último ${mesLab(N[N.length-1].periodo)}.`)); }
+    const rt = retribucion(p.codigo); if (rt) f.append(tarjetaRetribucion(rt));
   }
   const err = el("span","err"); f.append(err);
   const acts = el("div","actions"); const cn = el("button","btn", ed ? "Cancelar" : "Cerrar"); cn.type = "button"; cn.addEventListener("click", () => dlg.close()); acts.append(cn);
@@ -335,7 +337,7 @@ async function ficha(p){
     if (val.fecha_baja && !val.motivo_baja) val.motivo_baja = "Baja (pendiente motivo)";
     if (val.fecha_baja && val.fecha_alta && val.fecha_baja < val.fecha_alta){ err.textContent = "La baja no puede ser anterior al alta."; return; }
     const row = { nombre:val.nombre, tipo_vinculo:val.tipo_vinculo, empleador: ett ? val.empresa_ett : (val.empleador || "B10"), empresa_ett: ett ? val.empresa_ett : null, clasificacion:val.clasificacion, departamento:val.departamento,
-      puesto:val.puesto, categoria:val.categoria, tipo_contrato:val.tipo_contrato, fecha_alta:val.fecha_alta, fecha_baja:val.fecha_baja, motivo_baja: val.fecha_baja ? val.motivo_baja : null, observaciones:val.observaciones };
+      grupo_profesional:val.grupo_profesional, puesto:val.puesto, categoria:val.categoria, tipo_contrato:val.tipo_contrato, fecha_alta:val.fecha_alta, fecha_baja:val.fecha_baja, motivo_baja: val.fecha_baja ? val.motivo_baja : null, observaciones:val.observaciones };
     let r;
     if (nueva){ row.codigo = val.codigo; r = await sch().from("personas").insert(row).select("id").single();
       if (!r.error && ett && val.fecha_alta) await sch().from("ett_periodos").insert({ persona_id:r.data.id, empresa_ett:val.empresa_ett, fecha_inicio:val.fecha_alta, fecha_fin:finPrev.value || null }); }
@@ -345,6 +347,37 @@ async function ficha(p){
     toast((nueva ? "Persona dada de alta" : "Ficha guardada") + (pend.length ? ". Pendiente: " + pend.map(k => etq[k]).join(", ") : "")); dlg.close(); recargar();
   });
   dlg.showModal();
+}
+// Retribución de una persona de nómina: estimación anual con el último mes «limpio» y real del año
+const TOPE_BASE = 5101.2;
+function retribucion(codigo){
+  const N = R.data.nomina.filter(n => n.codigo === codigo && n.base_cc > 0).sort((a,b) => a.periodo < b.periodo ? -1 : 1); if (!N.length) return null;
+  const limpio = N.filter(n => n.bruto > 0 && !n.it_enfermedad && !n.indemnizacion && !n.vacaciones_finiquito);
+  const ref = (limpio.length ? limpio : N)[(limpio.length ? limpio : N).length - 1];
+  const tipoIrpf = ref.bruto ? ref.irpf / ref.bruto : 0;
+  const a = { bruto: ref.base_cc * 12, ssEmp: ref.ss_empresa * 12, ss: ref.ss_trabajador * 12 };
+  a.coste = a.bruto + a.ssEmp; a.irpf = a.bruto * tipoIrpf; a.liq = a.bruto - a.ss - a.irpf;
+  const anio = ref.periodo.slice(0,4), Y = R.data.nomina.filter(n => n.codigo === codigo && n.periodo.startsWith(anio));
+  const real = { bruto: sum(Y, n => n.bruto + n.paga_extra), ssEmp: sum(Y, n => n.ss_empresa), ss: sum(Y, n => n.ss_trabajador), irpf: sum(Y, n => n.irpf + n.paga_extra_irpf),
+    liq: sum(Y, n => n.liquido + n.paga_extra_liquido), otras: sum(Y, n => n.otras_deducciones), coste: sum(Y, n => n.coste_total),
+    desde: Y.length ? Y[0].periodo : null, hasta: Y.length ? Y[Y.length-1].periodo : null };
+  return { ref, a, real, tipoIrpf, tope: ref.base_cc >= TOPE_BASE - 0.5, limpio: !!limpio.length };
+}
+function tarjetaRetribucion(r){
+  const c = el("div","card"); c.style.margin = "4px 0 12px";
+  c.append(el("b",null,"Retribución"));
+  const t = el("table","tbl"); const hr = el("tr"); for (const h of ["","Mensual (12 pagas)","Anual estimado",`Real ${mesLab(r.real.desde)} – ${mesLab(r.real.hasta)}`]) hr.append(el("th", h ? "n" : null, h)); t.append(el("thead")); t.tHead.append(hr);
+  const tb = el("tbody"); const fila = (lab, a, real, b) => { const tr = el("tr", b ? "wk" : null); tr.append(el("td",null,lab), el("td","n",eur(a / 12) + " €"), el("td","n",eur(a) + " €"), el("td","n",real == null ? "" : eur(real) + " €")); tb.append(tr); };
+  fila("Bruto (base de cotización)", r.a.bruto, r.real.bruto);
+  fila("+ Seguridad Social empresa", r.a.ssEmp, r.real.ssEmp);
+  fila("Coste empresa", r.a.coste, r.real.coste, true);
+  fila("– Seguridad Social trabajador", r.a.ss, r.real.ss);
+  fila(`– IRPF (${(r.tipoIrpf*100).toLocaleString("es-ES",{maximumFractionDigits:1})} %)`, r.a.irpf, r.real.irpf);
+  if (r.real.otras) fila("– Otras deducciones (embargos, anticipos…)", 0, r.real.otras);
+  fila("Líquido", r.a.liq, r.real.liq, true);
+  t.append(tb); c.append(t);
+  c.append(el("p","hint",`Estimación con la nómina de ${mesLab(r.ref.periodo)}${r.limpio ? "" : " (con incidencias: IT, finiquito o indemnización)"}: bruto anual = base de cotización × 12 (incluye la prorrata de las pagas extra); coste = bruto + Seguridad Social de empresa; IRPF al tipo efectivo de ese mes.${r.tope ? " Su base está en el tope de cotización: el bruto real es mayor que la base." : ""}${r.real.ssEmp < 0 ? " La Seguridad Social de empresa real sale negativa por los meses de IT: la empresa adelanta la prestación y la descuenta de sus cotizaciones (pago delegado)." : ""} «Real» suma lo pagado en el año, incluida la paga extra.`));
+  return c;
 }
 function sigCodigoEtt(){ const n = R.data.personas.map(p => /^ETT(\d+)$/.exec(p.codigo)).filter(Boolean).map(m => +m[1]); return "ETT" + String((n.length ? Math.max(...n) : 0) + 1).padStart(3,"0"); }
 
@@ -386,10 +419,11 @@ async function cargarNomina(file){
     const periodo = `${m[3]}-${m[2]}-01`, extra = /paga extra/i.test(titulo);
     const ids = H.slice(4, ti).map(c => txt(c).padStart(6, "0"));
     const nom = ids.map((_, i) => [A[hi+1], A[hi+2], A[hi+3]].map(r => txt((r || [])[4 + i])).filter(Boolean).join(" "));
-    const acc = ids.map(() => ({ bruto:0, ss_empresa:0, coste_empresa:0, indemnizacion:0, it_enfermedad:0, vacaciones_finiquito:0, horas_presencia:0 }));
+    const acc = ids.map(() => ({ bruto:0, ss_empresa:0, coste_empresa:0, indemnizacion:0, it_enfermedad:0, vacaciones_finiquito:0, horas_presencia:0, base_cc:0, ss_trabajador:0, irpf:0, liquido:0, deducciones:0 }));
     for (const r of A.slice(hi + 4)){ if (!r) continue; const lab = txt(r[2]) || txt(r[1]); if (!lab) continue;
       const k = lab === "TOTAL BRUTO" ? "bruto" : lab === "SEGURIDAD SOCIAL EMPRESA" ? "ss_empresa" : lab === "COSTE EMPRESA" ? "coste_empresa" : /^Indemnizaci/i.test(lab) ? "indemnizacion"
-        : lab === "HORAS PRESENCIA" ? "horas_presencia" : /^(Enfermedad|Prest\.Enfermedad|Complemento I\.T|Complemento Enfermedad)/i.test(lab) ? "it_enfermedad" : /^Parte Proporcional Vacaciones/i.test(lab) ? "vacaciones_finiquito" : null;
+        : lab === "HORAS PRESENCIA" ? "horas_presencia" : /^(Enfermedad|Prest\.Enfermedad|Complemento I\.T|Complemento Enfermedad)/i.test(lab) ? "it_enfermedad" : /^Parte Proporcional Vacaciones/i.test(lab) ? "vacaciones_finiquito" : lab === "BASE CONTINGENCIAS COMUNES" ? "base_cc" : /^Cotización/i.test(lab) ? "ss_trabajador"
+        : /^Tributación IRPF/i.test(lab) ? "irpf" : lab === "TOTAL LIQUIDO" ? "liquido" : lab === "TOTAL DEDUCCIONES" ? "deducciones" : null;
       if (!k) continue; ids.forEach((_, i) => { const v = +r[4 + i]; if (isFinite(v)) acc[i][k] += v; }); }
     const round = x => Math.round(x * 100) / 100;
     const total = acc.reduce((s, a) => s + a.coste_empresa, 0);
@@ -400,9 +434,9 @@ async function cargarNomina(file){
     if (nuevos.length){ const r = await sch().from("personas").insert(nuevos.map(x => ({ codigo:x.c, nombre: x.n.toLowerCase().replace(/(^|\s)\S/g, s => s.toUpperCase()), tipo_vinculo:"Nómina", empleador:"B10", tipo_contrato:"Indefinido", observaciones:`Alta automática al cargar la nómina de ${mesLab(periodo)}` }))); if (r.error) throw r.error; }
     const c = await sb.schema("core").from("cargas").insert({ tipo:"rrhh_nomina", fichero:file.name, periodo:periodo.slice(0,7) + (extra ? " extra" : ""), filas:ids.length, importe_total:round(total), notas:"Carga desde la app" }).select("id").single();
     if (c.error) throw c.error;
-    const rows = ids.map((cod, i) => extra ? { periodo, codigo:cod, paga_extra:round(acc[i].coste_empresa) }
-      : Object.assign({ periodo, codigo:cod, carga_id:c.data.id }, Object.fromEntries(Object.entries(acc[i]).map(([k,v]) => [k, round(v)]))));
-    if (!extra){ const del = await sch().from("nomina_mensual").update({ coste_empresa:0, bruto:0, ss_empresa:0, indemnizacion:0, it_enfermedad:0, vacaciones_finiquito:0, horas_presencia:0 }).eq("periodo", periodo).not("codigo","in",`(${ids.map(x => `"${x}"`).join(",")})`); if (del.error) throw del.error; }
+    const rows = ids.map((cod, i) => extra ? { periodo, codigo:cod, paga_extra:round(acc[i].coste_empresa), paga_extra_irpf:round(acc[i].irpf), paga_extra_liquido:round(acc[i].liquido) }
+      : (({ deducciones, ...a }) => Object.assign({ periodo, codigo:cod, carga_id:c.data.id, otras_deducciones:round(deducciones - a.ss_trabajador - a.irpf) }, Object.fromEntries(Object.entries(a).map(([k,v]) => [k, round(v)]))))(acc[i]));
+    if (!extra){ const del = await sch().from("nomina_mensual").update({ coste_empresa:0, bruto:0, ss_empresa:0, indemnizacion:0, it_enfermedad:0, vacaciones_finiquito:0, horas_presencia:0, base_cc:0, ss_trabajador:0, irpf:0, otras_deducciones:0, liquido:0 }).eq("periodo", periodo).not("codigo","in",`(${ids.map(x => `"${x}"`).join(",")})`); if (del.error) throw del.error; }
     const up = await sch().from("nomina_mensual").upsert(rows, { onConflict:"periodo,codigo" }); if (up.error) throw up.error;
     set(`Hecho: ${extra ? "paga extra" : "nómina"} de ${mesLab(periodo)} cargada (${ids.length} personas${nuevos.length ? `, ${nuevos.length} altas nuevas: completa su ficha` : ""}).`);
     toast("Nómina cargada"); if (nuevos.length){ R.tab = "personas"; R.f.incompletas = true; } recargar();
@@ -415,9 +449,9 @@ function exportar(){
   const A = [["Mes","Personas nómina","Nómina ordinaria","Indemnizaciones","Paga extra","Total nómina","ETT sin IVA","Coste total","% ETT","Personas ETT"]];
   for (const s of S) A.push([mesLab(s.m), s.pers, Math.round(s.ord), Math.round(s.ind), Math.round(s.ext), Math.round(s.nom), Math.round(s.ett), Math.round(s.tot), s.tot ? Math.round(s.ett / s.tot * 1000) / 1000 : 0, s.ettN]);
   XLSX.utils.book_append_sheet(wb, sheet(A, [10,10,14,14,12,14,12,14,8,10]), "Resumen");
-  const B = [["Código","Nombre","Vínculo","Empresa ETT","Clasificación","Departamento","Puesto","Categoría","Contrato","Alta","Baja","Motivo baja","Pendiente"]];
-  for (const p of R.data.personas) B.push([p.codigo, p.nombre, p.tipo_vinculo, p.empresa_ett || "", p.clasificacion || "", p.departamento || "", p.puesto || "", p.categoria || "", p.tipo_contrato || "", p.fecha_alta || "", p.fecha_baja || "", p.motivo_baja || "", pendientes(p).join(", ")]);
-  XLSX.utils.book_append_sheet(wb, sheet(B, [9,32,9,12,10,20,18,14,22,11,11,20,30]), "Personas");
+  const B = [["Código","Nombre","Vínculo","Empresa ETT","Clasificación","Grupo profesional","Departamento","Puesto","Categoría","Contrato","Alta","Baja","Motivo baja","Pendiente","Mes de referencia","Bruto anual (base x 12)","Coste empresa anual","SS trabajador anual","IRPF anual","Líquido anual","Líquido mensual"]];
+  for (const p of R.data.personas) B.push([p.codigo, p.nombre, p.tipo_vinculo, p.empresa_ett || "", p.clasificacion || "", p.grupo_profesional || "", p.departamento || "", p.puesto || "", p.categoria || "", p.tipo_contrato || "", p.fecha_alta || "", p.fecha_baja || "", p.motivo_baja || "", pendientes(p).join(", "), ...(r => r ? [mesLab(r.ref.periodo), Math.round(r.a.bruto), Math.round(r.a.coste), Math.round(r.a.ss), Math.round(r.a.irpf), Math.round(r.a.liq), Math.round(r.a.liq / 12)] : [])(retribucion(p.codigo))]);
+  XLSX.utils.book_append_sheet(wb, sheet(B, [9,32,9,12,10,14,20,18,14,22,11,11,20,30,10,14,14,14,12,14,12]), "Personas");
   const C = [["Código","Nombre","Clasificación","Departamento", ...M.map(mesLab), "Total"]];
   const by = new Map(); for (const n of R.data.nomina) if (M.includes(n.periodo)){ const x = by.get(n.codigo) || {}; x[n.periodo] = n.coste_total; by.set(n.codigo, x); }
   for (const [cod, x] of by){ const p = R.data.porCodigo.get(cod) || {}; C.push([cod, p.nombre || "", p.clasificacion || "", p.departamento || "", ...M.map(m => Math.round((x[m] || 0) * 100) / 100), Math.round(sum(M, m => x[m]) * 100) / 100]); }
