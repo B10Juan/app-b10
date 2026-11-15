@@ -41,7 +41,7 @@ const INICIO = [
   { tipo:"carpeta", id:"operaciones", titulo:"Operaciones", texto:"Compras y planificación de las compras de importación.", hijos:["compras","planificador"] },
   { tipo:"usuarios" },
   { tipo:"carpeta", id:"tesoreria",   titulo:"Tesorería",   texto:"Pagos pendientes y previsión de tesorería.", hijos:["tesoreria_prov"] },
-  { tipo:"carpeta", id:"personas",    titulo:"Personas",    texto:"Plantilla, ETT y costes de personal.", hijos:["rrhh"] },
+  { tipo:"carpeta", id:"personas",    titulo:"Personas",    texto:"Plantilla, ETT y costes de personal.", hijos:["rrhh","datos"] },
   { tipo:"carpeta", id:"comercial",   titulo:"Comercial",   texto:"Clientes y equipo comercial.", hijos:["demanda","crm"] },
 ];
 const carpetaDe = codigo => INICIO.find(x => x.tipo === "carpeta" && x.hijos.includes(codigo));
