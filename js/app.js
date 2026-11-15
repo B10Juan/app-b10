@@ -39,11 +39,10 @@ const MODULOS = [
 // Primer nivel de la pantalla inicial: módulos sueltos y carpetas que agrupan módulos
 const INICIO = [
   { tipo:"modulo",  codigo:"plan_accion" },
-  { tipo:"modulo",  codigo:"datos" },
   { tipo:"carpeta", id:"operaciones", titulo:"Operaciones", texto:"Compras y planificación de las compras de importación.", hijos:["compras","planificador"] },
   { tipo:"usuarios" },
   { tipo:"carpeta", id:"tesoreria",   titulo:"Tesorería",   texto:"Pagos pendientes y previsión de tesorería.", hijos:["tesoreria_prov"] },
-  { tipo:"carpeta", id:"personas",    titulo:"Personas",    texto:"Plantilla, ETT y costes de personal.", hijos:["rrhh","organigrama"] },
+  { tipo:"carpeta", id:"personas",    titulo:"Personas",    texto:"Plantilla, ETT y costes de personal.", hijos:["rrhh","organigrama","datos"] },
   { tipo:"carpeta", id:"comercial",   titulo:"Comercial",   texto:"Clientes y equipo comercial.", hijos:["demanda","crm"] },
 ];
 const carpetaDe = codigo => INICIO.find(x => x.tipo === "carpeta" && x.hijos.includes(codigo));
