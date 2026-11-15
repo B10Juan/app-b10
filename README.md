@@ -75,7 +75,7 @@ Permisos: Gestión de usuarios > Plan de Acción del P.E. (Visualización = solo
 
 ## Personas · Organigrama
 
-Módulo `organigrama` (carpeta Personas, ruta `#organigrama`, migración 24). Tablas `rrhh.organigramas` (título, subtítulo, nota) y `rrhh.organigrama_nodos` (dirección general, apoyo a DG/staff, direcciones/pilares y departamentos, con responsable, descripción y orden). Se pueden tener varios organigramas (versiones o empresas), duplicarlos y exportarlos a PowerPoint (pptxgenjs desde cdnjs) con formas y textos editables; la vista en pantalla usa la misma geometría que la diapositiva.
+Módulo `organigrama` (carpeta Personas, ruta `#organigrama`, migración 24). Tablas `rrhh.organigramas` (título, subtítulo, nota) y `rrhh.organigrama_nodos` (dirección general, apoyo a DG/staff, direcciones/pilares y departamentos, con responsable, descripción y orden). Se pueden tener varios organigramas (versiones o empresas), duplicarlos y exportarlos a PowerPoint (pptxgenjs desde jsDelivr, con unpkg de reserva) con formas y textos editables; la vista en pantalla usa la misma geometría que la diapositiva.
 
 ## Personas · Costes de personal
 
