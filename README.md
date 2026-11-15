@@ -73,6 +73,10 @@ actividades › tareas), con vistas de lista, calendario, cronograma y responsab
 (ruta `#plan`) y comparte su inicio de sesión. Datos en el esquema `plan` de Supabase (migración 14).
 Permisos: Gestión de usuarios > Plan de Acción del P.E. (Visualización = solo consulta; Edición = crea y modifica).
 
+## Personas · Organigrama
+
+Módulo `organigrama` (carpeta Personas, ruta `#organigrama`, migración 24). Tablas `rrhh.organigramas` (título, subtítulo, nota) y `rrhh.organigrama_nodos` (dirección general, apoyo a DG/staff, direcciones/pilares y departamentos, con responsable, descripción y orden). Se pueden tener varios organigramas (versiones o empresas), duplicarlos y exportarlos a PowerPoint (pptxgenjs desde cdnjs) con formas y textos editables; la vista en pantalla usa la misma geometría que la diapositiva.
+
 ## Personas · Costes de personal
 
 Desde la versión 0.12 la introducción de datos maestros va en un módulo aparte, **Formulario introducción de datos** (código `datos`, ruta `#datos`, migración 23): pestañas *Personas* (fichas, altas, bajas, ausencias) y *Estructura de departamentos* (clasificación › departamento › puesto). Ver y editar esas tablas se permite con `datos` o con `rrhh`; los importes de nómina siguen solo con `rrhh`. El módulo de costes queda con Resumen, Por sección, Por empleado y ETT.
