@@ -73,6 +73,17 @@ actividades › tareas), con vistas de lista, calendario, cronograma y responsab
 (ruta `#plan`) y comparte su inicio de sesión. Datos en el esquema `plan` de Supabase (migración 14).
 Permisos: Gestión de usuarios > Plan de Acción del P.E. (Visualización = solo consulta; Edición = crea y modifica).
 
+## Personas · Costes de personal
+
+Módulo «rrhh» (carpeta Personas). Esquema `rrhh` de Supabase (migración 19; después añadir `rrhh` en Settings > Data API > Exposed schemas).
+- `rrhh.personas`: ficha de cada persona (nómina, ETT o externo) con clasificación (M.O.D/M.O.I/M.O.E), departamento, contrato, alta y baja.
+  Al dar de alta desde la app se piden los datos obligatorios. Los cambios quedan en `rrhh.movimientos`.
+- `rrhh.nomina_mensual`: se carga desde la app con el fichero mensual «Imputación de costes» (y aparte el de paga extra; no el de totales).
+  Las personas nuevas del fichero se dan de alta solas con la ficha incompleta.
+- `rrhh.ett_periodos`: contratos de puesta a disposición de cada persona de ETT.
+- Coste de ETT: facturas de Tesorería de los proveedores de `rrhh.ett_proveedores` (vista `rrhh.v_ett_facturas`), sin IVA.
+Los datos personales y de nóminas no se guardan en este repositorio.
+
 ## Stock de AX
 
 En Planificador de compras > Proveedores, el recuadro «Stock de AX» muestra la fecha del último fichero cargado.
