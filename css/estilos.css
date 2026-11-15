@@ -564,3 +564,26 @@ nav.tabs .btn{align-self:center;margin-bottom:4px}
 .tesbl .gtog:hover{background:var(--surface-2);color:var(--ink)}
 .tesbl .gtog .gi{font-size:13px;line-height:1;color:var(--ink-3)}
 .tesbl th.gv .gtog{color:var(--red)}
+
+/* Organigrama (módulo «organigrama»): misma geometría que la diapositiva de 13,33 × 7,5 pulgadas */
+.org-marco{container-type:inline-size;width:100%;max-width:1400px;margin:0 auto}
+.org-lienzo{position:relative;width:100%;aspect-ratio:13.333/7.5;background:#fff;border-radius:6px;overflow:hidden;font-family:Calibri,Carlito,"Barlow",sans-serif;color:#1F3864}
+.org-linea{position:absolute;background:#8EA0B8}
+.org-linea.h{height:1.5px;transform:translateY(-50%)}
+.org-linea.v{width:1.5px;transform:translateX(-50%)}
+.org-linea.staff.h{background:none;height:0;border-top:2px dashed #C9862B;transform:translateY(-1px)}
+.org-punto{position:absolute;width:.7cqw;height:.7cqw;min-width:6px;min-height:6px;border-radius:50%;background:#C9862B;transform:translate(-50%,-50%)}
+.org-caja{position:absolute;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.25cqw;padding:.4cqw .6cqw;border-radius:.5cqw;text-align:center;line-height:1.15;overflow:hidden;color:#fff;border:0;font-family:inherit;box-shadow:0 1px 3px rgba(0,0,0,.18)}
+button.org-caja{cursor:pointer}
+button.org-caja:hover{outline:2px solid #C9862B;outline-offset:1px}
+.org-caja b,.org-caja span,.org-caja i{display:block}
+.org-caja b{font-weight:700}
+.org-caja.dir{background:#1F3864}
+.org-caja.pil{background:#4472C4}
+.org-caja.dep{background:#4E9A8F}
+.org-caja.staff{background:#fff;color:#1F3864;border:2px dashed #C9862B;box-shadow:none}
+.org-leyenda{position:absolute;left:4%;right:4%;display:flex;justify-content:space-around;color:#404040}
+.org-leyenda span{display:flex;align-items:center}
+.org-muestra{display:inline-block;width:1.7em;height:1.35em;border-radius:3px;margin-right:.7em}
+.org-muestra.dir{background:#1F3864}.org-muestra.pil{background:#4472C4}.org-muestra.dep{background:#4E9A8F}
+.org-muestra.staff{background:#fff;border:2px dashed #C9862B;box-sizing:border-box}
