@@ -20,6 +20,7 @@ export const MARCA = {
     tesoreria_prov: `${W}/2025/12/washbasins-collecion-b10-01.jpg`,
     personas:     `${W}/2025/12/shower-collecion-b10-01.jpg`,
     rrhh:         `${W}/2025/12/bathtubs-collecion-b10-02-1300x750.jpg`,
+    datos:        `${W}/2025/12/washbasins-collecion-b10-01.jpg`,
   },
 };
 
@@ -54,6 +55,7 @@ const P = {
   usuarios:'<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18.5 14.8c1.6.8 2.7 2.5 3 5.2"/>',
   personas:'<circle cx="12" cy="7" r="3.5"/><path d="M5 21c.6-4 3.3-6.5 7-6.5s6.4 2.5 7 6.5"/><path d="M4 11h3M17 11h3"/>',
   clave:'<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M17 6l3 3M15 8l2 2"/>',
+  datos:'<rect x="5" y="3.5" width="14" height="17.5" rx="1.5"/><path d="M9 3.5h6v3H9z"/><path d="M8.5 11h7M8.5 14.5h7M8.5 18h4"/>',
   salir:'<path d="M15 4h4a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-4"/><path d="M10 17l-5-5 5-5M5 12h11"/>',
 };
 export function icono(n){
