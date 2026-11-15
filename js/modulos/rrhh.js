@@ -263,7 +263,7 @@ function tabPersonas(box){
     tb.append(tr); }
   if (!L.length){ const tr = el("tr"); const td = el("td","empty","No hay personas con estos filtros."); td.colSpan = 10; tr.append(td); tb.append(tr); }
   t.append(tb); tw.append(t); box.append(tw);
-  box.append(el("p","hint","Pulsa una persona para ver o editar su ficha. Al dar de alta se piden la clasificación, el departamento, el tipo de contrato y la fecha de alta; en ETT, además, la empresa y la fecha de fin prevista."));
+  box.append(el("p","hint","Pulsa una persona para ver o editar su ficha. Para guardar basta con el nombre y el código (y la empresa si es de ETT); el resto se puede completar después. Las fichas a las que les falten clasificación, departamento, contrato o fecha de alta salen como incompletas."));
 }
 
 // Diálogo de ficha (alta, edición, baja y periodos ETT)
@@ -272,7 +272,7 @@ async function ficha(p){
   let dlg = document.getElementById("dlgPersona"); if (dlg) dlg.remove();
   dlg = el("dialog"); dlg.id = "dlgPersona"; dlg.style.maxWidth = "680px"; document.body.append(dlg);
   const f = el("form"); f.method = "dialog"; f.noValidate = true; dlg.append(f);
-  f.append(el("h2",null, nueva ? "Nueva persona" : p.nombre), el("p","sub", nueva ? "Los campos con * son obligatorios." : `${p.codigo} · ${p.tipo_vinculo}${p.empresa_ett ? " · " + p.empresa_ett : ""}`));
+  f.append(el("h2",null, nueva ? "Nueva persona" : p.nombre), el("p","sub", nueva ? "Puedes guardar con el nombre y el código y completar el resto después. Los campos con * hacen falta para que la ficha esté completa." : `${p.codigo} · ${p.tipo_vinculo}${p.empresa_ett ? " · " + p.empresa_ett : ""}`));
   const v = Object.assign({ tipo_vinculo:"Nómina", empleador:"B10" }, p || {});
   const I = {};
   const campo = (k, lab, tipo, opts, req) => { const d = el("div","f"); d.dataset.f = k; const l = el("label",null,lab + (req ? " *" : "")); let i;
@@ -289,11 +289,11 @@ async function ficha(p){
   f.append(fila(campo("puesto","Puesto","text"), campo("categoria","Categoría","text")));
   f.append(fila(campo("tipo_contrato","Tipo de contrato","select",CONTRATOS,true), campo("fecha_alta","Fecha de alta","date",null,true)));
   let finPrev = null;
-  if (nueva){ const d = el("div","f"); d.dataset.f = "fin"; finPrev = el("input"); finPrev.type = "date"; d.append(el("label",null,"Fin previsto del contrato (ETT) *"), finPrev, el("span","hint","")); blkEtt.append(d); }
+  if (nueva){ const d = el("div","f"); d.dataset.f = "fin"; finPrev = el("input"); finPrev.type = "date"; d.append(el("label",null,"Fin previsto del contrato (ETT)"), finPrev, el("span","hint","")); blkEtt.append(d); }
   f.append(fila(campo("fecha_baja","Fecha de baja","date"), campo("motivo_baja","Motivo de la baja","select",MOTIVOS)));
   f.append(campo("observaciones","Observaciones","area"));
   // código de nómina vs ETT
-  const syncV = () => { const ett = I.tipo_vinculo.value === "ETT"; blkEtt.hidden = !ett; blkNom.hidden = ett; if (ett && nueva && !I.codigo.value){ const sc = sigCodigoEtt(); for (const x of f.querySelectorAll('[data-f="codigo"] input')) x.value = sc; } if (ett && !I.tipo_contrato.value) I.tipo_contrato.value = "Puesta a disposición (ETT)"; };
+  const syncV = () => { const ett = I.tipo_vinculo.value === "ETT"; blkEtt.hidden = !ett; blkNom.hidden = ett; if (ett && nueva && !I.codigo.value){ const sc = sigCodigoEtt(); for (const x of f.querySelectorAll('[data-f="codigo"] input')) x.value = sc; } if (ett && !I.tipo_contrato.value) I.tipo_contrato.value = "Puesta a disposición (ETT)"; if (!ett && nueva && (!I.tipo_contrato.value || I.tipo_contrato.value === "Puesta a disposición (ETT)")) I.tipo_contrato.value = "Indefinido"; };
   // los dos bloques tienen un input «codigo»: dejar uno solo
   const cods = f.querySelectorAll('[data-f="codigo"] input'); I.codigo = cods[1]; cods[0].addEventListener("input", () => { I.codigo.value = cods[0].value; }); I.codigo.addEventListener("input", () => { cods[0].value = I.codigo.value; }); cods[0].value = I.codigo.value; cods[0].disabled = !ed || !nueva; I.codigo.disabled = !ed || !nueva;
   I.tipo_vinculo.addEventListener("change", syncV); syncV(); if (!nueva) I.tipo_vinculo.disabled = true;
@@ -326,19 +326,23 @@ async function ficha(p){
   f.addEventListener("submit", async e => { e.preventDefault(); if (!ed) return;
     const val = {}; for (const k of Object.keys(I)) val[k] = (I[k].value || "").trim() || null; if (val.departamento === "__nuevo") val.departamento = null;
     const ett = val.tipo_vinculo === "ETT"; for (const d of f.querySelectorAll(".f")) d.classList.remove("miss");
-    const falta = [["nombre"],["tipo_vinculo"],["codigo"],["clasificacion"],["departamento"],["tipo_contrato"],["fecha_alta"]].concat(ett ? [["empresa_ett"]] : []).map(x => x[0]).filter(k => !val[k]);
-    if (nueva && ett && !finPrev.value) falta.push("fin");
-    if (val.fecha_baja && !val.motivo_baja) falta.push("motivo_baja");
-    if (falta.length){ for (const k of falta){ const d = f.querySelector(`[data-f="${k}"]:not([hidden] *)`) || f.querySelector(`[data-f="${k}"]`); if (d){ d.classList.add("miss"); d.querySelector(".hint").textContent = "Obligatorio"; } } err.textContent = "Faltan datos obligatorios."; return; }
+    const marcar = (ks, txt) => { for (const k of ks){ for (const d of f.querySelectorAll(`[data-f="${k}"]`)){ d.classList.add("miss"); d.querySelector(".hint").textContent = txt; } } };
+    // imprescindible para guardar: nombre, vínculo, código y, en ETT, la empresa
+    const minimo = ["nombre","tipo_vinculo","codigo"].concat(ett ? ["empresa_ett"] : []).filter(k => !val[k]);
+    if (minimo.length){ marcar(minimo, "Necesario para guardar"); err.textContent = "Para guardar hace falta al menos el nombre y el código" + (ett ? " y la empresa ETT." : "."); return; }
+    // el resto puede quedar pendiente: se guarda igual y la ficha sale como incompleta
+    const pend = ["clasificacion","departamento","tipo_contrato","fecha_alta"].filter(k => !val[k]);
+    if (val.fecha_baja && !val.motivo_baja) val.motivo_baja = "Baja (pendiente motivo)";
     if (val.fecha_baja && val.fecha_alta && val.fecha_baja < val.fecha_alta){ err.textContent = "La baja no puede ser anterior al alta."; return; }
     const row = { nombre:val.nombre, tipo_vinculo:val.tipo_vinculo, empleador: ett ? val.empresa_ett : (val.empleador || "B10"), empresa_ett: ett ? val.empresa_ett : null, clasificacion:val.clasificacion, departamento:val.departamento,
       puesto:val.puesto, categoria:val.categoria, tipo_contrato:val.tipo_contrato, fecha_alta:val.fecha_alta, fecha_baja:val.fecha_baja, motivo_baja: val.fecha_baja ? val.motivo_baja : null, observaciones:val.observaciones };
     let r;
     if (nueva){ row.codigo = val.codigo; r = await sch().from("personas").insert(row).select("id").single();
-      if (!r.error && ett) await sch().from("ett_periodos").insert({ persona_id:r.data.id, empresa_ett:val.empresa_ett, fecha_inicio:val.fecha_alta, fecha_fin:finPrev.value }); }
+      if (!r.error && ett && val.fecha_alta) await sch().from("ett_periodos").insert({ persona_id:r.data.id, empresa_ett:val.empresa_ett, fecha_inicio:val.fecha_alta, fecha_fin:finPrev.value || null }); }
     else r = await sch().from("personas").update(row).eq("id", p.id);
     if (r.error){ console.error(r.error); err.textContent = r.error.code === "23505" ? "Ya existe una persona con ese código." : "No se ha podido guardar: " + r.error.message; return; }
-    toast(nueva ? "Persona dada de alta" : "Ficha guardada"); dlg.close(); recargar();
+    const etq = { clasificacion:"clasificación", departamento:"departamento", tipo_contrato:"contrato", fecha_alta:"fecha de alta" };
+    toast((nueva ? "Persona dada de alta" : "Ficha guardada") + (pend.length ? ". Pendiente: " + pend.map(k => etq[k]).join(", ") : "")); dlg.close(); recargar();
   });
   dlg.showModal();
 }
@@ -393,7 +397,7 @@ async function cargarNomina(file){
     const msg = extra ? `Fichero de PAGA EXTRA de ${mesLab(periodo)}: ${ids.length} personas, ${eur(total)} €. Se guarda como paga extra del mes (no toca la nómina ordinaria).`
       : `Nómina ordinaria de ${mesLab(periodo)}: ${ids.length} personas, coste de empresa ${eur(total)} €. Si ya estaba cargada, se sustituye.\n\nOjo: si es el fichero de «totales» (nómina + paga extra), no lo cargues: sube la nómina ordinaria y la paga extra por separado.`;
     if (!confirm(msg + (nuevos.length ? `\n\n${nuevos.length} personas nuevas se darán de alta con ficha incompleta: ${nuevos.map(x => x.n).join(", ")}.` : "") + "\n\n¿Continuar?")){ set(""); return; }
-    if (nuevos.length){ const r = await sch().from("personas").insert(nuevos.map(x => ({ codigo:x.c, nombre: x.n.toLowerCase().replace(/(^|\s)\S/g, s => s.toUpperCase()), tipo_vinculo:"Nómina", empleador:"B10", observaciones:`Alta automática al cargar la nómina de ${mesLab(periodo)}` }))); if (r.error) throw r.error; }
+    if (nuevos.length){ const r = await sch().from("personas").insert(nuevos.map(x => ({ codigo:x.c, nombre: x.n.toLowerCase().replace(/(^|\s)\S/g, s => s.toUpperCase()), tipo_vinculo:"Nómina", empleador:"B10", tipo_contrato:"Indefinido", observaciones:`Alta automática al cargar la nómina de ${mesLab(periodo)}` }))); if (r.error) throw r.error; }
     const c = await sb.schema("core").from("cargas").insert({ tipo:"rrhh_nomina", fichero:file.name, periodo:periodo.slice(0,7) + (extra ? " extra" : ""), filas:ids.length, importe_total:round(total), notas:"Carga desde la app" }).select("id").single();
     if (c.error) throw c.error;
     const rows = ids.map((cod, i) => extra ? { periodo, codigo:cod, paga_extra:round(acc[i].coste_empresa) }
