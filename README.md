@@ -75,6 +75,8 @@ Permisos: Gestión de usuarios > Plan de Acción del P.E. (Visualización = solo
 
 ## Personas · Costes de personal
 
+Desde la versión 0.12 la introducción de datos maestros va en un módulo aparte, **Formulario introducción de datos** (código `datos`, ruta `#datos`, migración 23): pestañas *Personas* (fichas, altas, bajas, ausencias) y *Estructura de departamentos* (clasificación › departamento › puesto). Ver y editar esas tablas se permite con `datos` o con `rrhh`; los importes de nómina siguen solo con `rrhh`. El módulo de costes queda con Resumen, Por sección, Por empleado y ETT.
+
 Módulo «rrhh» (carpeta Personas). Esquema `rrhh` de Supabase (migración 19; después añadir `rrhh` en Settings > Data API > Exposed schemas).
 - `rrhh.personas`: ficha de cada persona (nómina, ETT o externo) con clasificación (M.O.D/M.O.I/M.O.E), departamento, contrato, alta y baja.
   Al dar de alta desde la app se piden los datos obligatorios. Los cambios quedan en `rrhh.movimientos`.
