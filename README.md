@@ -35,9 +35,9 @@ Esquemas: `core` (usuarios, permisos, cargas, auditoría), `maestros` (proveedor
    (Add file > Upload files, arrastrando el contenido de la carpeta).
 3. **Netlify** (gratuito, permite uso empresarial): Add new site > Import an existing project > GitHub >
    repositorio `app-b10`. Deja vacío el comando de build y pon `/` como directorio de publicación. Deploy.
-   En Site configuration > Change site name puedes dejarlo como `b10-app.netlify.app` o similar.
+   En Site configuration > Change site name puedes dejarlo como `b10-app.github.io/app-b10` o similar.
 4. **Supabase > Authentication > URL Configuration**: en *Site URL* pon la dirección de Netlify
-   (por ejemplo `https://b10-app.netlify.app`) y añádela también en *Redirect URLs*.
+   (por ejemplo `https://b10-app.github.io/app-b10`) y añádela también en *Redirect URLs*.
 5. Entra en la dirección de Netlify con tu correo y contraseña.
 
 Cada cambio que se suba a GitHub se publica solo en Netlify en un minuto.
@@ -90,3 +90,10 @@ sin sugerencias de pedido ni alertas, y no se les pueden añadir entradas nuevas
 Las facturas se cargan en `ax.facturas_compras_lineas` (de momento desde Excel).
 Después de cada carga, ejecutar en el SQL Editor: `select * from maestros.actualizar_desde_facturas();`
 para dar de alta proveedores y artículos nuevos y actualizar los precios de compra.
+
+## Publicación
+
+La app se publica con **GitHub Pages** desde la rama `main` (carpeta raíz): https://b10juan.github.io/app-b10/
+Cada cambio que llega a `main` se publica solo en uno o dos minutos. El repositorio es público: no subas nunca
+datos de la empresa, contraseñas ni la clave secreta de Supabase. Los datos están protegidos por el inicio de
+sesión y las reglas RLS de Supabase.
