@@ -114,7 +114,7 @@ export function renderRrhh(app){
 export function renderDatos(app){
   document.title = "Formulario introducción de datos";
   const mod = nivel("datos") ? "datos" : "rrhh";
-  cabecera(app, "Formulario introducción de datos", "Tablas maestras: fichas de personas (nómina, ETT y externos) y estructura de clasificación, departamentos y puestos.", { txt:"APP B10", href:"#" }, nivel("datos") === "editar" || nivel("rrhh") === "editar" ? null : mod);
+  cabecera(app, "Formulario introducción de datos", "Tablas maestras: fichas de personas (nómina, ETT y externos) y estructura de clasificación, departamentos y puestos.", { txt:"Personas", href:"#personas" }, nivel("datos") === "editar" || nivel("rrhh") === "editar" ? null : mod);
   const box = el("div","pad rrhh"); box.style.paddingBottom = "32px"; app.append(box);
   if (!R.data){ if (!R.loading) cargar(); box.append(el("div","card empty","Cargando datos…")); return; }
   const nav = el("nav","tabs"); nav.style.marginBottom = "12px";
