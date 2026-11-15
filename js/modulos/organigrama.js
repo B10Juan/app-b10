@@ -96,7 +96,9 @@ function vista(org, nodos, alPulsar){
 let cargaPptx = null;
 function pptxLib(){
   if (window.PptxGenJS) return Promise.resolve();
-  if (!cargaPptx) cargaPptx = new Promise((ok, ko) => { const s = document.createElement("script"); s.src = "https://cdnjs.cloudflare.com/ajax/libs/pptxgenjs/3.12.0/pptxgen.bundle.js"; s.onload = ok; s.onerror = () => { cargaPptx = null; ko(new Error("No se ha podido cargar la librería de PowerPoint")); }; document.head.append(s); });
+  const URLS = ["https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js", "https://unpkg.com/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"];
+  const una = u => new Promise((ok, ko) => { const s = document.createElement("script"); s.src = u; s.onload = ok; s.onerror = () => { s.remove(); ko(); }; document.head.append(s); });
+  if (!cargaPptx) cargaPptx = una(URLS[0]).catch(() => una(URLS[1])).catch(() => { cargaPptx = null; throw new Error("No se ha podido cargar la librería de PowerPoint"); });
   return cargaPptx;
 }
 export async function exportarPptx(org, nodos){
