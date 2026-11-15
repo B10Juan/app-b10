@@ -566,7 +566,8 @@ nav.tabs .btn{align-self:center;margin-bottom:4px}
 .tesbl th.gv .gtog{color:var(--red)}
 
 /* Organigrama (módulo «organigrama»): misma geometría que la diapositiva de 13,33 × 7,5 pulgadas */
-.org-marco{container-type:inline-size;width:100%;max-width:1400px;margin:0 auto}
+.org-marco{container-type:inline-size;width:100%;max-width:1150px;margin:0 auto}
+.org-anadir{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 10px}
 .org-lienzo{position:relative;width:100%;aspect-ratio:13.333/7.5;background:#fff;border-radius:6px;overflow:hidden;font-family:Calibri,Carlito,"Barlow",sans-serif;color:#1F3864}
 .org-linea{position:absolute;background:#8EA0B8}
 .org-linea.h{height:1.5px;transform:translateY(-50%)}
