@@ -1,5 +1,6 @@
-// APP B10 · Personas: costes de personal (nómina + ETT) y ficha de personas
-// Datos en el esquema «rrhh» de Supabase (migración 19). Permiso del módulo: «rrhh».
+// APP B10 · Personas: costes de personal (nómina + ETT) y formulario de introducción de datos (personas y estructura)
+// Datos en el esquema «rrhh» de Supabase (migraciones 19 a 23).
+// Permisos: «rrhh» para los costes; «datos» (o «rrhh») para las fichas de personas y la estructura de departamentos.
 import { sb, render, cabecera, nivel } from "../app.js";
 import { el, toast, sheet, saveXlsx, stamp } from "../util.js";
 
@@ -12,7 +13,7 @@ const CONTRATOS = ["Indefinido","Temporal","Fijo discontinuo","Prácticas","Form
 const MOTIVOS = ["Despido","Baja voluntaria","Fin de contrato","Jubilación","Fin puesta a disposición","Baja (pendiente motivo)","Otros"];
 const OBLIG = [["clasificacion","Clasificación"],["departamento","Departamento"],["tipo_contrato","Tipo de contrato"],["fecha_alta","Fecha de alta"]];
 
-const R = { tab:"resumen", data:null, loading:false, anio:null, agr:"departamento", repartirEtt:false, indem:true, abiertos:new Set(),
+const R = { tab:"resumen", tabD:"personas", data:null, loading:false, anio:null, agr:"departamento", repartirEtt:false, indem:true, abiertos:new Set(),
   f:{ estado:"activos", vinculo:"", q:"", incompletas:false }, fe:{ q:"", dep:"" }, msg:null };
 let charts = [];
 
@@ -25,7 +26,8 @@ const mesLab = k => `${MES[+k.slice(5,7)-1]} ${k.slice(2,4)}`;
 const hoyKey = (() => { const d = new Date(), p = n => String(n).padStart(2,"0"); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`; })();
 const finMes = k => { const d = new Date(Date.UTC(+k.slice(0,4), +k.slice(5,7), 0)); return d.toISOString().slice(0,10); };
 const sum = (a, f) => a.reduce((s, x) => s + (+f(x) || 0), 0);
-const puede = () => nivel("rrhh") === "editar";
+const puede = () => nivel("rrhh") === "editar" || nivel("datos") === "editar";
+const puedeCostes = () => nivel("rrhh") === "editar";
 
 async function todo(q){ const out = []; for (let i = 0; ; i += 1000){ const { data, error } = await q().range(i, i + 999); if (error) throw error; out.push(...data); if (data.length < 1000) break; } return out; }
 
@@ -76,17 +78,18 @@ function grupoDe(p){ if (!p) return "Sin asignar"; const v = R.agr === "departam
 export function renderRrhh(app){
   document.title = "Personas: costes de personal";
   for (const c of charts) try { c.destroy(); } catch(e){} charts = [];
-  cabecera(app, "Costes de personal", "Coste de empresa por mes, sección y persona (nómina y ETT) y ficha de cada persona.", { txt:"Personas", href:"#personas" }, "rrhh");
+  cabecera(app, "Costes de personal", "Coste de empresa por mes, sección y persona (nómina y ETT). Las fichas de personas y la estructura están en el Formulario de introducción de datos.", { txt:"Personas", href:"#personas" }, "rrhh");
   const box = el("div","pad rrhh"); box.style.paddingBottom = "32px"; app.append(box);
   if (!R.data){ if (!R.loading) cargar(); box.append(el("div","card empty","Cargando datos…")); return; }
 
   const nav = el("nav","tabs"); nav.style.marginBottom = "12px";
-  const inc = R.data.personas.filter(p => activa(p) && pendientes(p).length).length;
-  for (const [k,t] of [["resumen","Resumen"],["seccion","Por sección"],["empleado","Por empleado"],["personas", "Ficha de personas" + (inc ? ` (${inc} incompletas)` : "")],["estructura","Estructura"],["ett","ETT"]]){
+  if (!["resumen","seccion","empleado","ett"].includes(R.tab)) R.tab = "resumen";
+  for (const [k,t] of [["resumen","Resumen"],["seccion","Por sección"],["empleado","Por empleado"],["ett","ETT"]]){
     const a = el("a",null,t); a.href = "#personas-costes"; if (R.tab === k) a.setAttribute("aria-current","page"); a.addEventListener("click", e => { e.preventDefault(); R.tab = k; render(); }); nav.append(a); }
   const acc = el("span"); acc.style.marginLeft = "auto"; acc.style.display = "flex"; acc.style.gap = "8px";
+  if (nivel("datos") || nivel("rrhh")){ const fd = el("a","btn small","Fichas y estructura ›"); fd.href = "#datos"; fd.title = "Formulario de introducción de datos"; acc.append(fd); }
   const ex = el("button","btn small","Exportar a Excel"); ex.addEventListener("click", exportar); acc.append(ex);
-  if (puede()){
+  if (puedeCostes()){
     const inp = el("input"); inp.type = "file"; inp.accept = ".xlsx,.xls"; inp.hidden = true; inp.multiple = true;
     const up = el("button","btn primary small","Cargar nómina (imputación de costes)"); up.title = "Fichero mensual «Imputación de costes» (o el de paga extra)"; up.addEventListener("click", () => inp.click());
     inp.addEventListener("change", async () => { await cargarNominas([...inp.files]); inp.value = ""; });
@@ -100,13 +103,27 @@ export function renderRrhh(app){
     for (const y of R.data.anios){ const b = el("button",null,String(y)); b.type = "button"; b.setAttribute("aria-pressed", String(y === R.anio)); b.addEventListener("click", () => { R.anio = y; render(); }); s.append(b); }
     const d = el("div","fld"); d.append(el("span",null,"Año"), s); c.append(d); box.append(c);
   }
-  if (!R.data.nomina.length && R.tab !== "personas" && R.tab !== "estructura"){ box.append(el("div","card empty","Todavía no hay nóminas cargadas. Usa «Cargar nómina» con el fichero de imputación de costes del mes.")); return; }
+  if (!R.data.nomina.length){ box.append(el("div","card empty","Todavía no hay nóminas cargadas. Usa «Cargar nómina» con el fichero de imputación de costes del mes.")); return; }
   if (R.tab === "resumen") tabResumen(box);
   else if (R.tab === "seccion") tabSeccion(box);
   else if (R.tab === "empleado") tabEmpleado(box);
-  else if (R.tab === "personas") tabPersonas(box);
-  else if (R.tab === "estructura") tabEstructura(box);
   else tabEtt(box);
+}
+
+// ---------- Formulario de introducción de datos: fichas de personas y estructura de departamentos ----------
+export function renderDatos(app){
+  document.title = "Formulario introducción de datos";
+  const mod = nivel("datos") ? "datos" : "rrhh";
+  cabecera(app, "Formulario introducción de datos", "Tablas maestras: fichas de personas (nómina, ETT y externos) y estructura de clasificación, departamentos y puestos.", { txt:"APP B10", href:"#" }, nivel("datos") === "editar" || nivel("rrhh") === "editar" ? null : mod);
+  const box = el("div","pad rrhh"); box.style.paddingBottom = "32px"; app.append(box);
+  if (!R.data){ if (!R.loading) cargar(); box.append(el("div","card empty","Cargando datos…")); return; }
+  const nav = el("nav","tabs"); nav.style.marginBottom = "12px";
+  const inc = R.data.personas.filter(p => activa(p) && pendientes(p).length).length;
+  for (const [k,t] of [["personas", "Personas" + (inc ? ` (${inc} incompletas)` : "")],["estructura","Estructura de departamentos"]]){
+    const a = el("a",null,t); a.href = "#datos"; if (R.tabD === k) a.setAttribute("aria-current","page"); a.addEventListener("click", e => { e.preventDefault(); R.tabD = k; render(); }); nav.append(a); }
+  if (nivel("rrhh")){ const acc = el("span"); acc.style.marginLeft = "auto"; const cl = el("a","btn small","Costes de personal ›"); cl.href = "#personas-costes"; acc.append(cl); nav.append(acc); }
+  box.append(nav);
+  if (R.tabD === "estructura") tabEstructura(box); else tabPersonas(box);
 }
 
 // ---------- Resumen ----------
@@ -425,7 +442,7 @@ function tabEtt(box){
     const tw2 = el("div","tblwrap"); const t2 = el("table","tbl"); const h2 = el("tr"); h2.append(el("th",null,"Departamento")); for (const m of M) h2.append(el("th","n",mesLab(m))); t2.append(el("thead")); t2.tHead.append(h2); const b2 = el("tbody");
     for (const g of deps){ const tr = el("tr"); tr.append(el("td",null,g)); for (const m of M) tr.append(el("td","n",String(new Set(D.act.filter(a => a.departamento === g && a.periodo === m).map(a => a.codigo)).size || ""))); b2.append(tr); }
     t2.append(b2); tw2.append(t2); box.append(tw2); }
-  box.append(el("p","hint","Un coste por día-persona muy alto (en rojo) indica que faltan personas o contratos de ETT en las fichas para ese mes. Para dar de alta a una persona de ETT: Ficha de personas › Nueva persona › Vínculo ETT."));
+  box.append(el("p","hint","Un coste por día-persona muy alto (en rojo) indica que faltan personas o contratos de ETT en las fichas para ese mes. Para dar de alta a una persona de ETT: Formulario introducción de datos › Personas › Nueva persona › Vínculo ETT."));
 }
 
 // ---------- Situación de la persona (activa, IT, excedencia, vacaciones, baja definitiva) ----------
@@ -680,7 +697,7 @@ async function cargarNominas(files){
       for (let i = 0; i < x.conceptos.length; i += 1000){ const r = await sch().from("nomina_conceptos").insert(x.conceptos.slice(i, i + 1000)); if (r.error) throw r.error; }
     }
     set(`Hecho: ${F.length} fichero(s) cargados${nuevos.size ? `, ${nuevos.size} altas nuevas: completa su ficha` : ""}.`);
-    toast("Nóminas cargadas"); if (nuevos.size){ R.tab = "personas"; R.f.incompletas = true; } recargar();
+    toast("Nóminas cargadas"); if (nuevos.size){ R.tabD = "personas"; R.f.incompletas = true; toast(`${nuevos.size} personas nuevas: completa sus fichas en el Formulario de introducción de datos`); } recargar();
   } catch(e){ console.error(e); set("No se ha podido cargar: " + (e.message || "error")); }
 }
 
