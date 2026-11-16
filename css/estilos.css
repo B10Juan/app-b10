@@ -588,3 +588,28 @@ button.org-caja:hover{outline:2px solid #C9862B;outline-offset:1px}
 .org-muestra{display:inline-block;width:1.7em;height:1.35em;border-radius:3px;margin-right:.7em}
 .org-muestra.dir{background:#1F3864}.org-muestra.pil{background:#4472C4}.org-muestra.dep{background:#4E9A8F}
 .org-muestra.staff{background:#fff;border:2px dashed #C9862B;box-sizing:border-box}
+
+/* ---- Planificador: forma de pago, filas visibles y notas ---- */
+.params .fpar select{max-width:330px;border:1px solid var(--line-strong);border-radius:6px;padding:4px 8px;background:var(--surface);font:inherit;font-size:13.5px}
+.hdr .fpsel{max-width:260px;font-size:13px}
+.cmeta .ptramos{display:inline-flex;flex-wrap:wrap;gap:4px;align-items:baseline}
+.cmeta .ptramos b{font-weight:600}
+.cmeta .ptramos b.pagado{color:var(--arrive)}
+.cmeta .ptramos b.vencido{color:var(--red)}
+td small.tramo{display:block;color:var(--ink-3);font-size:12px}
+.fptramos{display:grid;gap:8px}
+.fprow{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.fprow input{width:64px;text-align:right;border:1px solid var(--line-strong);border-radius:6px;padding:6px 8px;background:var(--surface-2);font:inherit}
+.fprow select{border:1px solid var(--line-strong);border-radius:6px;padding:6px 8px;background:var(--surface-2);font:inherit}
+.fpsum{font-size:13px;color:var(--ink-2);margin-left:auto}
+.fpsum.bad{color:var(--red);font-weight:600}
+.rowsdd{position:relative}
+.rowsdd>summary{list-style:none;cursor:pointer;border:1px solid var(--line-strong);border-radius:6px;padding:6px 30px 6px 10px;background:var(--surface);font-size:14px;position:relative;user-select:none}
+.rowsdd>summary::-webkit-details-marker{display:none}
+.rowsdd>summary::after{content:"▾";position:absolute;right:10px;top:50%;transform:translateY(-50%);color:var(--ink-3)}
+.rowsdd[open]>summary::after{content:"▴"}
+.rowsp{position:absolute;z-index:20;top:calc(100% + 4px);left:0;min-width:260px;background:var(--surface);border:1px solid var(--line-strong);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.14);padding:8px 10px;display:grid;gap:4px}
+.rowsp label{display:flex;gap:8px;align-items:center;font-size:14px;padding:3px 2px;cursor:pointer}
+.rowsa{display:flex;gap:6px;border-top:1px solid var(--line);padding-top:8px;margin-top:4px}
+.ph .tog.xt{color:var(--ink-2)}
+.pendcard .comments{margin:10px 0 0}

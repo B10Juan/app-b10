@@ -64,6 +64,17 @@
   </form>
 </dialog>
 
+<dialog id="dlgFp">
+  <form method="dialog" id="fFp">
+    <h2>Nueva forma de pago</h2>
+    <p class="sub">Reparte el importe del pedido en tramos. «Al hacer el pedido» es el adelanto (fecha del pedido); «a la carga» es antes de embarcar (ETD); el resto se fija respecto a la llegada a puerto (ETA).</p>
+    <div id="fpTramos" class="fptramos"></div>
+    <div class="prow" style="margin:6px 0 10px"><button type="button" class="btn small" id="fpAdd">＋ Añadir tramo</button><span id="fpSuma" class="fpsum"></span></div>
+    <div class="f"><label for="fpNombre">Nombre</label><input id="fpNombre" autocomplete="off"><span class="hint">Se propone a partir de los tramos; puedes cambiarlo.</span></div>
+    <span class="err" id="fpErr"></span>
+    <div class="actions"><button type="button" class="btn" id="fpCancel">Cancelar</button><button class="btn primary" id="fpSave">Crear forma de pago</button></div>
+  </form>
+</dialog>
 <dialog id="dlgMan">
   <form method="dialog" id="fMan">
     <h2 id="manTitle"></h2>

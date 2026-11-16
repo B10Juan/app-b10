@@ -28,7 +28,7 @@ async function saveXlsx(wb, name){ XLSX.writeFile(wb, name, {cellDates:true}); t
 
 const state = {
   suppliers:[], products:[], orders:[], canWrite:false, loaded:{s:false},
-  filters:{q:"",onlyA:false,compact:false}, collapsed:new Set(), showDone:false, expanded:new Set(), histOpen:new Set(),
+  filters:{q:"",onlyA:false,hide:new Set()}, formas:[], collapsed:new Set(), showDone:false, expanded:new Set(), histOpen:new Set(),
   ordFilter:{sid:"",peds:[],refs:[]}, payFilter:{sup:"",pend:true,paid:false},
   get dd(){ return ctx.ui.dd; }, set dd(v){ ctx.ui.dd = v; },
   get ddq(){ return ctx.ui.ddq; }, set ddq(v){ ctx.ui.ddq = v; },
@@ -61,7 +61,7 @@ const clone=o=>JSON.parse(JSON.stringify(o));
 const same=(a,b)=>{const ka=Object.keys(a||{}).sort(), kb=Object.keys(b||{}).sort(); if(ka.join()!==kb.join()) return false; return ka.every(k=>a[k]===b[k]);};
 
 /* ---------- Modelo ---------- */
-const DEF={plazo:12,transito:5,despacho:1,pagoDias:15,horizonte:52,cobertura:8};
+const DEF={plazo:12,transito:5,despacho:1,horizonte:52,cobertura:8};
 function sup(id){return state.suppliers.find(s=>s._id===id);}
 function cfg(sid){return Object.assign({},DEF,sup(sid)||{});}
 function weeks(sid){const n=cfg(sid).horizonte||52; const a=[]; for(let i=0;i<n;i++) a.push(addW(today,i)); return a;}
@@ -74,10 +74,19 @@ const effPrices=o=>(o.mod?o.mod.prices:o.prices)||{};
 function lp(o,code,base){const pr=base?(o.prices||{}):effPrices(o); const p=prod(code); return pr[code]!=null?pr[code]:(p&&p.price||0);}
 const total=(o,base)=>Object.entries(base?(o.lines||{}):effLines(o)).reduce((a,[k,q])=>a+q*lp(o,k,base),0);
 const missing=p=>REQ.filter(([f])=>p[f]==null||p[f]===""||(f==="pallet"&&!(p[f]>=1))).map(([,l])=>l);
+/* Formas de pago: tramos con % y momento (pedido = fecha del pedido, carga = ETD, eta = llegada; dias < 0 = antes) */
+const FORMA_DEF={id:null,nombre:"Pago 15 días antes de ETA",tramos:[{pct:100,ref:"eta",dias:-15}]};
+function formaDe(o){const id=(o&&o.fp)||(sup(o&&o.supplier)||{}).fpId; return state.formas.find(f=>f.id===id)||state.formas[0]||FORMA_DEF;}
+function formaSup(sid){const id=(sup(sid)||{}).fpId; return state.formas.find(f=>f.id===id)||state.formas[0]||FORMA_DEF;}
+const REFL={pedido:"al hacer el pedido",carga:"a la carga (ETD)",eta:"ETA"};
+function tramoTxt(t,total1){const mom=t.ref==="eta"?(t.dias<0?`${-t.dias} días antes de ETA`:t.dias>0?`${t.dias} días después de ETA`:"a la llegada (ETA)"):(REFL[t.ref]+(t.dias?` ${t.dias>0?"+":"−"} ${Math.abs(t.dias)} d`:"")); return total1?mom:`${t.pct}% ${mom}`;}
+function formaCorta(f){return f.tramos.length===1?tramoTxt(f.tramos[0],true):f.tramos.map(t=>tramoTxt(t)).join(" · ");}
 function od(o,sid){
   const c=cfg(sid), eta=parseKey(o.eta), etaW=mondayU(eta);
-  const etd=o.etd?parseKey(o.etd):addW(etaW,-c.transito);
-  return {eta,etaW,entryW:addW(etaW,c.despacho),etd,etdW:mondayU(etd),pedidoW:addW(etaW,-c.plazo),pago:addD(etd,-c.pagoDias),crd:o.crd?parseKey(o.crd):null};
+  const etd=o.etd?parseKey(o.etd):addW(etaW,-c.transito), pedidoW=addW(etaW,-c.plazo);
+  const fped=o.fechaPedido?parseKey(o.fechaPedido):pedidoW, f=formaDe(o);
+  const pagos=f.tramos.map((t,i)=>({i,pct:+t.pct,ref:t.ref,dias:+t.dias||0,date:addD(t.ref==="pedido"?fped:t.ref==="carga"?etd:eta,+t.dias||0),est:t.ref==="pedido"?!o.fechaPedido:t.ref==="carga"?!o.etd:false}));
+  return {eta,etaW,entryW:addW(etaW,c.despacho),etd,etdW:mondayU(etd),pedidoW,fped,forma:f,pagos,pago:pagos[pagos.length-1].date,crd:o.crd?parseKey(o.crd):null};
 }
 function orderState(o,sid){
   const d=od(o,sid);
@@ -163,7 +172,7 @@ function renderHome(app){
   }
   app.append(g);
 }
-const PARAMS=[["plazo","Pedido a puerto","sem"],["transito","Tránsito","sem"],["despacho","Despacho","sem"],["pagoDias","Pago antes de embarque","días"],["cobertura","Cobertura por pedido","sem"]];
+const PARAMS=[["plazo","Pedido a puerto","sem"],["transito","Tránsito","sem"],["despacho","Despacho","sem"],["cobertura","Cobertura por pedido","sem"]];
 function renderSupHeader(app,r){
   const s=sup(r.sid), c=cfg(r.sid); document.title=`${s.name}: planificador de compras`;
   const h=el("header","top pad"); const b=el("div","brand");
@@ -172,10 +181,11 @@ function renderSupHeader(app,r){
   const pr=el("div","params");
   for(const [k,l,u] of PARAMS){const w=el("label","param"); w.append(l+" "); const i=el("input"); i.value=c[k]; i.inputMode="numeric"; i.disabled=!state.canWrite; i.setAttribute("aria-label",l); i.dataset.k="param-"+k;
     i.addEventListener("change",()=>{const v=num(i.value); if(!(v>=0)){i.value=c[k]; toast("Introduce un número válido"); return;} saveSup(r.sid,{[k]:v});}); w.append(i,el("span","u",u)); pr.append(w);}
+  const fw=el("label","param fpar"); fw.append("Forma de pago "); const fs=selForma((sup(r.sid)||{}).fpId, v=>saveSup(r.sid,{fpId:v}), false); fs.disabled=!state.canWrite; fs.setAttribute("aria-label","Forma de pago del proveedor"); fw.append(fs); pr.append(fw);
   h.append(pr); app.append(h);
   const fl=el("section","flow"); fl.setAttribute("aria-label","Plazos de un pedido");
   const step=(t,sm,k)=>{const d=el("div"); d.append(el("b",null,t),el("small",null,sm),el("span","k",k)); return d;};
-  fl.append(step("Pedido","Se lanza al proveedor",`ETA − ${c.plazo} sem`), step("Pago","Previsión",`ETD − ${c.pagoDias} d`), step("Carga en China","ETD, embarque",`ETA − ${c.transito} sem`), step("Llegada a puerto","ETA Valencia","ETA"), step("Entrada en almacén","Tras despacho",`ETA + ${c.despacho} sem`));
+  fl.append(step("Pedido","Se lanza al proveedor",`ETA − ${c.plazo} sem`), step("Pago",formaSup(r.sid).tramos.length>1?"En varios tramos":"Previsión",formaCorta(formaSup(r.sid))), step("Carga en China","ETD, embarque",`ETA − ${c.transito} sem`), step("Llegada a puerto","ETA Valencia","ETA"), step("Entrada en almacén","Tras despacho",`ETA + ${c.despacho} sem`));
   app.append(fl);
   const nav=el("nav","tabs pad");
   const t1=el("a",null,"Revisión de artículos para compras"); t1.href="#"+r.sid; if(r.view==="art") t1.setAttribute("aria-current","page");
@@ -196,7 +206,7 @@ function renderArticles(app,sid){
   const tb=el("div","toolbar pad");
   const q=el("input"); q.type="search"; q.placeholder="Buscar modelo o código"; q.value=f.q; q.dataset.k="q"; q.setAttribute("aria-label","Buscar artículo"); q.addEventListener("input",()=>{f.q=q.value; render();});
   const l1=el("label"); const c1=el("input"); c1.type="checkbox"; c1.checked=f.onlyA; c1.addEventListener("change",()=>{f.onlyA=c1.checked; render();}); l1.append(c1," Solo artículos con alerta");
-  const l2=el("label"); const c2=el("input"); c2.type="checkbox"; c2.checked=f.compact; c2.addEventListener("change",()=>{f.compact=c2.checked; render();}); l2.append(c2," Ocultar filas de pedido y carga");
+  const l2=filasMenu(c);
   const nb=el("button","btn primary","Nuevo artículo"); nb.disabled=!state.canWrite; nb.addEventListener("click",()=>openProd(null,sid));
   const st=supStats(sid); const sm=el("div","summary");
   const mk=(cl,n,l)=>{const x=el("span",cl); x.append(el("b",null,String(n))," "+l); return x;};
@@ -226,7 +236,7 @@ function renderArticles(app,sid){
 }
 function rowsFor(c){return [["dem","Venta prevista"],["entry","Entrada en almacén",null,`ETA + ${c.despacho} sem`],["man","Otras entradas",null,"devoluciones, otros proveedores"],["ped","Pedido a lanzar","x"],["carga","Carga en China (ETD)","x"],["real","Stock real"],["res","Reservas pendientes"],["over","Sobre stock de seguridad"]];}
 function productBody(p,r,W,sid,c){
-  const tb=el("tbody",p.extinguir?"extb":""), collapsed=state.collapsed.has(p.code), compact=state.filters.compact;
+  const tb=el("tbody",p.extinguir?"extb":""), collapsed=state.collapsed.has(p.code), hide=state.filters.hide;
   const h=el("tr","ph"), hc=el("td"); hc.colSpan=W.length+1; const inn=el("div","phin");
   const nb=el("button","name",p.name||p.code); nb.title="Ver o editar los datos del artículo"; nb.addEventListener("click",()=>openProd(p,sid));
   const mv=v=>v==null||v===""?"falta":(fmt(v)||"0");
@@ -238,10 +248,12 @@ function productBody(p,r,W,sid,c){
   if(r.sug){const s=r.sug; inn.append(el("span","tag "+(s.late||s.rotura?"bad":"warn"), s.late?`Vas tarde: bajo seguridad en ${wLabel(s.week)}. Pide ya ${s.qty} uds`:`Lanzar pedido en ${wLabel(s.launch)}: ${s.qty} uds (bajo seguridad en ${wLabel(s.week)})`));}
   else if(!r.miss.length&&!p.extinguir) inn.append(el("span","tag ok","Cubierto todo el horizonte"));
   for(const w of r.warnings) inn.append(el("span","tag bad",w));
+  if(state.canWrite){const xb=el("button","tog xt",p.extinguir?"Volver a comprar":"A extinguir"); xb.title=p.extinguir?"Quitar la marca: el artículo vuelve a planificarse con normalidad":"Marcar como a extinguir: no se vuelve a comprar y pasa al final de la lista";
+    xb.addEventListener("click",()=>{ if(!p.extinguir&&!confirm(`¿Marcar «${p.name}» como a extinguir? No se propondrán más pedidos y pasará al final, junto al resto de artículos a extinguir.`)) return; const np=clone(p); np.extinguir=!p.extinguir; saveProduct(np); toast(np.extinguir?`${p.name}: a extinguir`:`${p.name}: vuelve a planificarse`); }); inn.append(xb);}
   const tg=el("button","tog",collapsed?"Mostrar":"Ocultar"); tg.addEventListener("click",()=>{collapsed?state.collapsed.delete(p.code):state.collapsed.add(p.code); render();});
   inn.append(tg); hc.append(inn); h.append(hc); tb.append(h);
   for(const [k,label,opt,note] of rowsFor(c)){
-    const tr=el("tr",(collapsed||(compact&&opt))?"hidden":(k==="real"?"rowA":""));
+    const tr=el("tr",(collapsed||hide.has(k))?"hidden":(k==="real"?"rowA":""));
     const lc=el("td","lab",label); if(note){lc.append(el("small",null,note)); lc.title="La mercancía entra en almacén una semana después de llegar a puerto, por el despacho del contenedor.";} tr.append(lc);
     for(let i=0;i<W.length;i++){
       const td=el("td","v"+(i===0?" now":"")), ks=key(W[i]);
@@ -316,7 +328,7 @@ $("#fAsg").addEventListener("submit",ev=>{
   ev.preventDefault(); const {sid,po}=asgCtx; const ref=$("#asgRef").value.trim();
   if(!ref){$("#asgErr").textContent="Indica el número de pedido."; return;}
   if(state.orders.some(x=>!isPend(x)&&x.supplier===sid&&(x.ref||"").toLowerCase()===ref.toLowerCase())){$("#asgErr").textContent="Ya existe un pedido con ese número."; return;}
-  const o={_id:tmpId(),supplier:sid,status:"lanzado",ref,crd:"",etd:"",eta:po.eta,naviera:"",tamano:$("#asgSize").value,lines:{},prices:{},history:[]};
+  const o={_id:tmpId(),supplier:sid,status:"lanzado",ref,crd:"",etd:"",eta:po.eta,naviera:"",tamano:$("#asgSize").value,lines:{},prices:{},history:[],comentarios:po.comentarios||"",fechaPedido:key(utcToday),fp:null,pagos:{}};
   let n=0; for(const [k,q] of Object.entries(po.lines||{})){o.lines[k]=q; o.prices[k]=(prod(k)||{}).price||0; n++;}
   $("#dlgAsg").close(); saveOrder(o).then(ok=>{ if(ok) delOrder(po); }); toast(`Pedido ${ref} creado con ${n} ${n===1?"artículo":"artículos"}`);
 });
@@ -398,7 +410,8 @@ function renderOrders(app,sid){
     for(const o of pend){const d=od(o,sid), cd=el("div","card pendcard"), row=el("div","prow");
       const u=Object.values(o.lines).reduce((a,b)=>a+b,0);
       row.append(el("b",null,`Entrada en almacén ${wLabel(d.entryW)}`), el("span",null,`ETA ${wLabel(d.etaW)}`), el("span","tag "+(d.pedidoW<today?"bad":"pend"), d.pedidoW<today?`Debía pedirse en ${wLabel(d.pedidoW)}`:`Pedir en ${wLabel(d.pedidoW)}`), el("span",null,`${Object.keys(o.lines).length} artículos, ${fmt(u)} uds, ${fmtE2(total(o))} a precio de ficha`));
-      const b=el("button","btn pend","Crear pedido"); b.disabled=!state.canWrite; b.style.marginLeft="auto"; b.addEventListener("click",()=>openAsg(sid,o)); row.append(b); cd.append(row); box.append(cd);}
+      const b=el("button","btn pend","Crear pedido"); b.disabled=!state.canWrite; b.style.marginLeft="auto"; b.addEventListener("click",()=>openAsg(sid,o)); row.append(b); cd.append(row);
+      cd.append(notas(o,"Notas de esta entrada: acuerdos con el proveedor, dudas, pendientes… Se pasan al pedido al crearlo.")); box.append(cd);}
   }
   box.append(el("h2","sec","Pedidos lanzados"));
   if(!live.length) box.append(el("div","card empty",fg.act?(done.length?"Ningún pedido en curso coincide con los filtros.":"Ningún pedido coincide con los filtros."):"No hay pedidos en curso. Crea un pedido a partir de las entradas pendientes para que aparezca aquí."));
@@ -457,7 +470,9 @@ function orderCard(o,sid,c){
   const iNav=el("input"); iNav.value=o.naviera||""; iNav.setAttribute("list","navieras"); iNav.disabled=ro; iNav.dataset.k="nav|"+o._id; iNav.addEventListener("change",()=>saveOrder(Object.assign(clone(o),{naviera:iNav.value.trim()})));
   const iSz=el("select"); iSz.disabled=ro; const e0=el("option",null,"Sin indicar"); e0.value=""; iSz.append(e0); for(const [v,l] of SIZES){const op=el("option",null,l); op.value=v; iSz.append(op);} iSz.value=o.tamano||""; iSz.addEventListener("change",()=>saveOrder(Object.assign(clone(o),{tamano:iSz.value})));
   const tot=el("div","tot",fmtE2(total(o))); if(o.mod) tot.append(el("s",null,fmtE2(total(o,true))));
-  h.append(fld("Nº pedido",null,iRef), fld("CRD","Fin de producción",dIn("crd")), fld("ETD","Embarque",dIn("etd")), fld("ETA","Llegada a puerto",dIn("eta")), fld("Naviera",null,iNav), fld("Tamaño",null,iSz), fld("Importe total",`${fmt(totU)||0} uds`,tot));
+  const iFp=el("input"); iFp.type="date"; iFp.value=o.fechaPedido||""; iFp.disabled=ro; iFp.dataset.k="fped|"+o._id; iFp.addEventListener("change",()=>saveOrder(Object.assign(clone(o),{fechaPedido:iFp.value||""})));
+  const iFo=selForma(o.fp, v=>saveOrder(Object.assign(clone(o),{fp:v})), true, (sup(sid)||{}).fpId); iFo.disabled=ro; iFo.dataset.k="fpo|"+o._id;
+  h.append(fld("Nº pedido",null,iRef), fld("Fecha pedido","Base de los adelantos",iFp), fld("CRD","Fin de producción",dIn("crd")), fld("ETD","Embarque",dIn("etd")), fld("ETA","Llegada a puerto",dIn("eta")), fld("Naviera",null,iNav), fld("Tamaño",null,iSz), fld("Importe total",`${fmt(totU)||0} uds`,tot), fld("Forma de pago",null,iFo));
   cd.append(h);
   if(o.mod){
     const mb=el("div","modbar"); const t=el("span"); t.append(el("b",null,"Modificación pendiente de validar por el proveedor"),` desde el ${dLong(parseKey(o.mod.at))}. Importe ${fmtE2(total(o,true))} pasa a ${fmtE2(total(o))}.`); mb.append(t);
@@ -466,7 +481,10 @@ function orderCard(o,sid,c){
   }
   const m=el("div","cmeta"); const [stx,scl]=orderState(o,sid); m.append(el("span","tag "+scl,stx));
   const mi=(t,v)=>{const s=el("span"); s.append(t+" ",el("b",null,v)); return s;};
-  m.append(mi("Entrada en almacén",`${wLabel(d.entryW)}, ${dLong(d.entryW)}`), mi(o.etd?"Pago previsto":"Pago previsto (ETD estimada)",dLong(d.pago)));
+  m.append(mi("Entrada en almacén",`${wLabel(d.entryW)}, ${dLong(d.entryW)}`));
+  const pg=el("span","ptramos"); pg.append("Pagos: ");
+  d.pagos.forEach((t,i)=>{ const pd=(o.pagos||{})[i]||o.pagado; const x=el("b",pd?"pagado":t.date<utcToday?"vencido":""); x.textContent=`${t.pct}% ${fmtE2(total(o)*t.pct/100)} el ${dLong(t.date)}${t.est?" (est.)":""}${pd?" · pagado":""}`; x.title=tramoTxt(t); pg.append(x); if(i<d.pagos.length-1) pg.append(" · "); });
+  m.append(pg);
   if(o.crd&&o.etd&&o.crd>o.etd) m.append(el("span","tag bad","El CRD es posterior a la ETD"));
   if(o.etd&&o.etd>o.eta) m.append(el("span","tag bad","La ETD es posterior a la ETA"));
   const tg=el("button","btn push",open?"Ocultar productos":`Ver productos (${Object.keys(effLines(o)).length})`); tg.setAttribute("aria-expanded",String(open)); tg.addEventListener("click",()=>{open?state.expanded.delete(o._id):state.expanded.add(o._id); render();}); m.append(tg);
@@ -474,10 +492,7 @@ function orderCard(o,sid,c){
   if(nh){const hb=el("button","btn",hopen?"Ocultar historial":`Historial (${nh} ${nh===1?"versión anterior":"versiones anteriores"})`); hb.addEventListener("click",()=>{hopen?state.histOpen.delete(o._id):state.histOpen.add(o._id); render();}); m.append(hb);}
   const del=el("button","btn danger","Eliminar pedido"); del.disabled=ro; del.addEventListener("click",()=>{if(confirm(`¿Eliminar el pedido ${o.ref} y todas sus líneas?`)) delOrder(o);}); m.append(del);
   cd.append(m);
-  const cw=el("div","comments"); const cl=el("label",null,"Comentarios"); const ta=el("textarea"); ta.rows=2; ta.value=o.comentarios||""; ta.disabled=ro; ta.dataset.k="com|"+o._id;
-  ta.placeholder=ro?"Sin comentarios":"Notas del pedido: incidencias, acuerdos con el proveedor, documentación…"; ta.id="com-"+o._id; cl.htmlFor=ta.id;
-  ta.addEventListener("change",()=>{const v=ta.value.trim(); if(v!==(o.comentarios||"")){saveOrder(Object.assign(clone(o),{comentarios:v})); toast("Comentario guardado");}});
-  cw.append(cl,ta); cd.append(cw);
+  cd.append(notas(o,"Notas del pedido: incidencias, acuerdos con el proveedor, documentación…"));
   if(open){
     cd.append(linesTable(o,true));
     if(!ro){const al=el("div","addline"); const s=el("select"); s.setAttribute("aria-label","Artículo a añadir"); const o0=el("option",null,"Añadir artículo…"); o0.value=""; s.append(o0);
@@ -515,21 +530,30 @@ function renderPlanMenu(app){
 function payRows(){
   const rows=[];
   for(const o of state.orders){
-    const s=sup(o.supplier); if(!s) continue; const c=cfg(o.supplier), d=od(o,o.supplier);
+    const s=sup(o.supplier); if(!s) continue; const c=cfg(o.supplier), d=od(o,o.supplier), n=d.pagos.length;
     if(isPend(o)){ if(!Object.keys(o.lines||{}).length) continue;
-      rows.push({mon:c.moneda||"EUR",o,sid:o.supplier,supName:s.name,ref:"Sin pedido (entrada "+wLabel(d.entryW)+")",est:true,etdReal:false,etd:d.etd,date:d.pago,amount:total(o),paid:false,late:false,mod:false}); continue;}
-    if(orderState(o,o.supplier)[0]==="En almacén"&&!o.pagado&&d.pago<addW(today,-26)) continue;
-    const paid=!!o.pagado;
-    rows.push({mon:c.moneda||"EUR",o,sid:o.supplier,supName:s.name,ref:o.ref,est:false,etdReal:!!o.etd,etd:d.etd,date:d.pago,amount:total(o),modAmount:o.mod?total(o,true):null,paid,paidAt:o.pagado||"",late:!paid&&d.pago<utcToday,mod:!!o.mod});
+      for(const t of d.pagos) rows.push({mon:c.moneda||"EUR",o,sid:o.supplier,supName:s.name,ref:"Sin pedido (entrada "+wLabel(d.entryW)+")",tramo:n>1?tramoTxt(t):"",ti:t.i,est:true,etdReal:false,etd:d.etd,date:t.date,amount:total(o)*t.pct/100,paid:false,late:false,mod:false});
+      continue;}
+    for(const t of d.pagos){
+      const paidAt=(o.pagos||{})[t.i]||o.pagado||"", paid=!!paidAt;
+      if(orderState(o,o.supplier)[0]==="En almacén"&&!paid&&t.date<addW(today,-26)) continue;
+      rows.push({mon:c.moneda||"EUR",o,sid:o.supplier,supName:s.name,ref:o.ref,tramo:n>1?tramoTxt(t):"",ti:t.i,n,est:false,etdReal:!t.est,etd:d.etd,date:t.date,amount:total(o)*t.pct/100,modAmount:o.mod?total(o,true)*t.pct/100:null,paid,paidAt,late:!paid&&t.date<utcToday,mod:!!o.mod});
+    }
   }
   return rows.sort((a,b)=>a.date-b.date);
+}
+function marcarPago(r){
+  const n=clone(r.o); n.pagos=Object.assign({},n.pagos||{});
+  if(n.pagado){ for(let i=0;i<(r.n||1);i++) if(!n.pagos[i]) n.pagos[i]=n.pagado; delete n.pagado; }
+  if(r.paid) delete n.pagos[r.ti]; else n.pagos[r.ti]=key(utcToday);
+  saveOrder(n); toast(r.paid?`${r.ref}: pago deshecho`:`${r.ref}${r.tramo?" ("+r.tramo+")":""}: marcado como pagado`);
 }
 function payVisible(){const f=state.payFilter; return payRows().filter(r=>(!f.sup||r.sid===f.sup)&&(f.pend||!r.est)&&(f.paid||!r.paid));}
 function monthKey(d){return d.getUTCFullYear()+"-"+String(d.getUTCMonth()+1).padStart(2,"0");}
 function monthLabel(k){const [y,m]=k.split("-").map(Number); return new Date(Date.UTC(y,m-1,1)).toLocaleDateString("es-ES",{month:"long",year:"numeric",timeZone:"UTC"});}
 function renderPagos(app){
   document.title="Previsión pagos importaciones";
-  const h=el("header","top pad"); const b=el("div","brand"); const bk=el("a","back","‹ Planificador de compras"); bk.href="#planificador"; b.append(bk,el("h1",null,"Previsión pagos importaciones"),el("p",null,"Fecha de pago prevista: ETD menos los días de antelación de cada proveedor.")); h.append(b,whoChip()); app.append(h);
+  const h=el("header","top pad"); const b=el("div","brand"); const bk=el("a","back","‹ Planificador de compras"); bk.href="#planificador"; b.append(bk,el("h1",null,"Previsión pagos importaciones"),el("p",null,"Fechas de pago según la forma de pago de cada proveedor (o la del pedido): adelantos en la fecha del pedido, pagos a la carga en la ETD y el resto respecto a la ETA.")); h.append(b,whoChip()); app.append(h);
   const box=el("div","pad"); const f=state.payFilter;
   const tb=el("div","toolbar"); tb.style.paddingTop="0";
   const sl=el("select"); sl.setAttribute("aria-label","Proveedor"); const o0=el("option",null,"Todos los proveedores"); o0.value=""; sl.append(o0);
@@ -568,22 +592,23 @@ function renderPagos(app){
     if(wk!==cur){closeW(); cur=wk; wsum={}; wrow=el("tr","wk"); const td=el("td",null,`Semana ${wLabel(parseKey(wk))}, del ${dLong(parseKey(wk))}`); td.colSpan=5; wrow.append(td,el("td","n",""),el("td")); tbd.append(wrow);}
     if(!r.paid) addMon(wsum,{[r.mon]:r.amount});
     const tr=el("tr",(r.late?"late":r.paid?"paid":r.est?"est":""));
-    const sit=r.paid?`Pagado el ${dLong(parseKey(r.paidAt))}`:r.late?"Vencido":r.est?"Estimado: entrada sin pedido":(r.etdReal?"ETD confirmada":"ETD estimada");
+    const sit=r.paid?`Pagado el ${dLong(parseKey(r.paidAt))}`:r.late?"Vencido":r.est?"Estimado: entrada sin pedido":(r.etdReal?"Fecha confirmada":"Fecha estimada");
     const st=el("td",null,sit); if(r.mod) st.append(el("span","tag mod",` Incluye modificación por validar. Confirmado: ${fmtM(r.modAmount,r.mon,2)}`));
-    tr.append(el("td",null,dLong(r.date)), el("td",null,r.supName), el("td",null,r.ref), el("td",null,dLong(r.etd)+(r.etdReal?"":" (est.)")), st, el("td","n",fmtM(r.amount,r.mon,2)));
+    const rc=el("td",null,r.ref); if(r.tramo) rc.append(el("small","tramo",r.tramo));
+    tr.append(el("td",null,dLong(r.date)), el("td",null,r.supName), rc, el("td",null,dLong(r.etd)+(r.o.etd?"":" (est.)")), st, el("td","n",fmtM(r.amount,r.mon,2)));
     const ac=el("td");
-    if(!r.est&&state.canWrite){const bt=el("button","btn small "+(r.paid?"":"ok"),r.paid?"Deshacer pago":"Marcar pagado"); bt.addEventListener("click",()=>{const n=clone(r.o); if(r.paid) delete n.pagado; else n.pagado=key(utcToday); saveOrder(n); toast(r.paid?`${r.ref}: pago deshecho`:`${r.ref}: marcado como pagado`);}); ac.append(bt);}
+    if(!r.est&&state.canWrite){const bt=el("button","btn small "+(r.paid?"":"ok"),r.paid?"Deshacer pago":"Marcar pagado"); bt.addEventListener("click",()=>marcarPago(r)); ac.append(bt);}
     tr.append(ac); tbd.append(tr);
   }
   closeW();
   t.append(tbd); tw.append(t); box.append(tw);
-  box.append(el("p","secsub","Los pagos parciales y los depósitos por proveedor se añadirán cuando esté la tabla maestra de proveedores. De momento se prevé un único pago por pedido."));
+  box.append(el("p","secsub","Cada pedido se divide en los tramos de su forma de pago. La forma de pago se elige en la cabecera de cada proveedor y se puede cambiar en un pedido concreto."));
   app.append(box);
 }
 function exportPagos(){
   const wb=XLSX.utils.book_new(), rows=payVisible();
-  const A=[["Fecha de pago","Semana","Proveedor","Pedido","ETD","ETD confirmada","Situación","Moneda","Importe previsto","Importe confirmado (si hay modificación por validar)","Pagado el"]];
-  for(const r of rows) A.push([xDate(r.date),wLabel(r.date),r.supName,r.ref,xDate(r.etd),r.etdReal?"Sí":"No",r.paid?"Pagado":r.late?"Vencido":r.est?"Estimado sin pedido":"Previsto",r.mon,Math.round(r.amount*100)/100,r.modAmount!=null?Math.round(r.modAmount*100)/100:"",r.paidAt?xDate(parseKey(r.paidAt)):""]);
+  const A=[["Fecha de pago","Semana","Proveedor","Pedido","Tramo","ETD","Fecha confirmada","Situación","Moneda","Importe previsto","Importe confirmado (si hay modificación por validar)","Pagado el"]];
+  for(const r of rows) A.push([xDate(r.date),wLabel(r.date),r.supName,r.ref,r.tramo||"Pago único",xDate(r.etd),r.etdReal?"Sí":"No",r.paid?"Pagado":r.late?"Vencido":r.est?"Estimado sin pedido":"Previsto",r.mon,Math.round(r.amount*100)/100,r.modAmount!=null?Math.round(r.modAmount*100)/100:"",r.paidAt?xDate(parseKey(r.paidAt)):""]);
   XLSX.utils.book_append_sheet(wb,sheet(A,[14,9,24,26,12,15,20,14,30,12]),"Calendario de pagos");
   const open=rows.filter(r=>!r.paid), months=[...new Set(open.map(r=>monthKey(r.date)))].sort(), sups=[...new Set(open.map(r=>r.supName))];
   const M=[["Proveedor","Moneda",...months.map(monthLabel),"Total"]];
@@ -606,7 +631,7 @@ function exportArticles(sid){
   const rows=[head]; const TONE={conf:"Confirmada",pnd:"Pendiente de pedido",mod:"Modificación por validar"};
   for(const {p,r} of vis){
     for(const [k,label,opt] of rowsFor(c)){
-      if(state.filters.compact&&opt) continue;
+      if(state.filters.hide.has(k)) continue;
       const arr={dem:r.dem,entry:r.entry,man:r.man,ped:r.ped,carga:r.carga,real:r.real,res:r.res,over:r.over}[k].map(v=>Math.round(v*100)/100);
       rows.push([dispCode(p),p.name,label+(k==="entry"?` (ETA + ${c.despacho} sem)`:""),...arr.map(v=>(["entry","man","ped","carga","res"].includes(k)&&!v)?"":v)]);
       if(k==="entry") rows.push([dispCode(p),p.name,"Situación de la entrada",...r.tone.map(t=>TONE[t]||"")]);
@@ -617,14 +642,14 @@ function exportArticles(sid){
   for(const {p,r} of vis){const sg=r.sug?(r.sug.late?`Vas tarde: bajo seguridad en ${wLabel(r.sug.week)}. Pide ya ${r.sug.qty} uds`:`Lanzar en ${wLabel(r.sug.launch)}: ${r.sug.qty} uds`):(r.miss.length?"":"Cubierto todo el horizonte");
     a.push([dispCode(p),p.name,p.model||"",p.stock??"",p.avg??"",p.ss??"",p.pallet??"",p.price??"",sg,r.warnings.join(". "),r.miss.join(", ")]);}
   XLSX.utils.book_append_sheet(wb,sheet(a,[16,26,12,12,18,16,13,15,40,50,30]),"Artículos");
-  const pr=[["Parámetro","Valor"],["Pedido a puerto (sem)",c.plazo],["Tránsito (sem)",c.transito],["Despacho (sem)",c.despacho],["Pago antes de embarque (días)",c.pagoDias],["Cobertura por pedido (sem)",c.cobertura],["Fecha de exportación",xDate(utcToday)]];
+  const pr=[["Parámetro","Valor"],["Pedido a puerto (sem)",c.plazo],["Tránsito (sem)",c.transito],["Despacho (sem)",c.despacho],["Forma de pago",formaSup(sid).nombre],["Cobertura por pedido (sem)",c.cobertura],["Fecha de exportación",xDate(utcToday)]];
   XLSX.utils.book_append_sheet(wb,sheet(pr,[30,14]),"Parámetros");
   saveXlsx(wb,`Revision_articulos_${safe(s.name)}_${stamp()}.xlsx`);
 }
 function exportOrders(sid){
   const s=sup(sid), wb=XLSX.utils.book_new(), {pend,done,live}=filteredGroups(sid), shown=[...live,...(state.showDone||ordF(sid).peds.length?done:[])];
-  const P=[["Nº pedido","Estado","CRD","ETD","ETA","Entrada en almacén","Semana entrada","Naviera","Tamaño","Uds","Importe total","Pago previsto","Modificación pendiente","Comentarios","Importe versión confirmada"]];
-  for(const o of shown){const d=od(o,sid); P.push([o.ref,orderState(o,sid)[0],o.crd?xDate(parseKey(o.crd)):"",o.etd?xDate(parseKey(o.etd)):"",xDate(d.eta),xDate(d.entryW),wLabel(d.entryW),o.naviera||"",sizeLabel(o.tamano),Object.values(effLines(o)).reduce((a,b)=>a+b,0),Math.round(total(o)*100)/100,xDate(d.pago),o.mod?"Sí":"No",o.comentarios||"",Math.round(total(o,true)*100)/100]);}
+  const P=[["Nº pedido","Estado","CRD","ETD","ETA","Entrada en almacén","Semana entrada","Naviera","Tamaño","Uds","Importe total","Fecha pedido","Forma de pago","Pagos previstos","Modificación pendiente","Comentarios","Importe versión confirmada"]];
+  for(const o of shown){const d=od(o,sid); P.push([o.ref,orderState(o,sid)[0],o.crd?xDate(parseKey(o.crd)):"",o.etd?xDate(parseKey(o.etd)):"",xDate(d.eta),xDate(d.entryW),wLabel(d.entryW),o.naviera||"",sizeLabel(o.tamano),Object.values(effLines(o)).reduce((a,b)=>a+b,0),Math.round(total(o)*100)/100,o.fechaPedido?xDate(parseKey(o.fechaPedido)):"",d.forma.nombre,d.pagos.map(t=>`${t.pct}% ${dShort(t.date)}`).join(" · "),o.mod?"Sí":"No",o.comentarios||"",Math.round(total(o,true)*100)/100]);}
   XLSX.utils.book_append_sheet(wb,sheet(P,[16,22,12,12,12,16,14,14,18,8,14,14,20,22]),"Pedidos");
   const L=[["Nº pedido","Referencia","Descripción","Cantidad","Precio unitario","Importe línea","Situación","Cantidad confirmada","Precio confirmado"]];
   for(const o of shown){const E=effLines(o), B=o.lines||{}; for(const code of new Set([...Object.keys(E),...Object.keys(B)])){const q=E[code]||0, bq=B[code]||0, up=lp(o,code), bp=lp(o,code,true); const ch=o.mod&&(q!==bq||Math.abs(up-bp)>1e-9);
@@ -647,15 +672,17 @@ const chk = r => { if (r && r.error) throw r.error; return r; };
 async function cargar(){
   S.loading = true;
   try{
-    const [pv, ap, pr, pe, st, em] = await Promise.all([
-      sb.schema("maestros").from("proveedores").select("id,codigo_ax,nombre,nombre_corto,alias,moneda,grupo_compra,es_importacion,contacto,email,plazo_semanas,transito_semanas,despacho_semanas,dias_pago_antes_embarque,cobertura_semanas"),
+    const [pv, ap, pr, pe, st, fpg, em] = await Promise.all([
+      sb.schema("maestros").from("proveedores").select("id,codigo_ax,nombre,nombre_corto,alias,moneda,grupo_compra,es_importacion,contacto,email,plazo_semanas,transito_semanas,despacho_semanas,forma_pago_id,cobertura_semanas"),
       sb.schema("maestros").from("articulo_proveedor").select("id,articulo_id,proveedor_id,precio,moneda,uds_pallet,orden,clave_stock,a_extinguir,venta_media_semanal,stock_seguridad,stock_manual,descripcion,modelo,articulos(id,codigo_ax,descripcion,modelo,estado)").eq("planificar", true).range(0, 4999),
       sb.schema("compras").from("prevision_venta").select("articulo_proveedor_id,semana,unidades").gte("semana", key(today)).range(0, 9999),
       sb.schema("compras").from("pedidos").select("*").order("eta"),
       sb.schema("ax").from("v_stock_actual").select("clave,disponible_real,fecha_stock,fichero").range(0, 9999),
+      sb.schema("compras").from("formas_pago").select("id,nombre,tramos,orden,activa").order("orden").order("id"),
       sb.schema("compras").from("entradas_manuales").select("id,articulo_proveedor_id,semana,cantidad,motivo,comentario").gte("semana", key(addW(today,-1))).range(0, 9999),
     ]);
-    for (const r of [pv, ap, pr, pe, st, em]) chk(r);
+    for (const r of [pv, ap, pr, pe, st, em, fpg]) chk(r);
+    state.formas = fpg.data.filter(f => f.activa !== false).map(f => ({ id:f.id, nombre:f.nombre, tramos:(f.tramos || []).map(t => ({ pct:+t.pct, ref:t.ref, dias:+t.dias || 0 })), orden:f.orden }));
     const man = {}; for (const e of em.data){ (man[e.articulo_proveedor_id] = man[e.articulo_proveedor_id] || {})[e.semana] = { id:e.id, cantidad:+e.cantidad, motivo:e.motivo, comentario:e.comentario || "" }; }
     const ov = {}; for (const r of pr.data){ (ov[r.articulo_proveedor_id] = ov[r.articulo_proveedor_id] || {})[r.semana] = +r.unidades; }
     const stock = new Map(st.data.map(x => [x.clave, x]));
@@ -664,7 +691,7 @@ async function cargar(){
     state.suppliers = pv.data.filter(p => conProd.has(p.id) || p.es_importacion).map(p => ({
       _id:"prov-"+p.id, dbId:p.id, codigo_ax:p.codigo_ax, name:p.nombre_corto || p.nombre.replace(/@+$/,""), razon:p.nombre.replace(/@+$/,""), alias:p.alias, familia:p.grupo_compra || "", contacto:p.contacto || "", email:p.email || "",
       moneda:p.moneda || "EUR", plazo:p.plazo_semanas ?? 12, transito:p.transito_semanas ?? 5, despacho:p.despacho_semanas ?? 1,
-      pagoDias:p.dias_pago_antes_embarque ?? 15, cobertura:p.cobertura_semanas ?? 8, horizonte:52, sort: conProd.has(p.id) ? 0 : 1 }));
+      fpId:p.forma_pago_id || null, cobertura:p.cobertura_semanas ?? 8, horizonte:52, sort: conProd.has(p.id) ? 0 : 1 }));
     state.products = ap.data.filter(a => a.articulos).map(a => { const sx = a.clave_stock ? stock.get(a.clave_stock) : null; return {
       _id:"ap-"+a.id, apId:a.id, artId:a.articulos.id, code:String(a.id), codigo_ax:a.articulos.codigo_ax, estado:a.articulos.estado, clave:a.clave_stock || "",
       name:a.descripcion || a.articulos.descripcion, model:a.modelo || a.articulos.modelo || "", avg:num0(a.venta_media_semanal), ss:num0(a.stock_seguridad),
@@ -678,11 +705,13 @@ async function cargar(){
 const num0 = v => v == null ? null : +v;
 function fromRow(r){
   return { _id:"ped-"+r.id, dbId:r.id, supplier:"prov-"+r.proveedor_id, status:r.estado, ref:r.referencia || "", crd:r.crd || "", etd:r.etd || "", eta:r.eta,
-    naviera:r.naviera || "", tamano:r.tamano || "", comentarios:r.comentarios || "", lines:r.lineas || {}, prices:r.precios || {}, mod:r.modificacion || undefined, history:r.historial || [], pagado:r.pagado_en || undefined };
+    naviera:r.naviera || "", tamano:r.tamano || "", comentarios:r.comentarios || "", lines:r.lineas || {}, prices:r.precios || {}, mod:r.modificacion || undefined, history:r.historial || [], pagado:r.pagado_en || undefined,
+    fechaPedido:r.fecha_pedido || "", fp:r.forma_pago_id || null, pagos:r.pagos || {} };
 }
 function toRow(o){
   return { proveedor_id:sup(o.supplier).dbId, estado:o.status, referencia:o.ref || null, crd:o.crd || null, etd:o.etd || null, eta:o.eta,
-    naviera:o.naviera || null, tamano:o.tamano || null, comentarios:o.comentarios || null, lineas:o.lines || {}, precios:o.prices || {}, modificacion:o.mod || null, historial:o.history || [], pagado_en:o.pagado || null };
+    naviera:o.naviera || null, tamano:o.tamano || null, comentarios:o.comentarios || null, lineas:o.lines || {}, precios:o.prices || {}, modificacion:o.mod || null, historial:o.history || [], pagado_en:o.pagado || null,
+    fecha_pedido:o.fechaPedido || null, forma_pago_id:o.fp || null, pagos:o.pagos || {} };
 }
 const queues = {};
 function enqueue(k, fn){ const p = (queues[k] || Promise.resolve()).then(fn).then(() => true).catch(e => { console.error(e); toast(msgErr(e)); cargar(); return false; }); queues[k] = p; return p; }
@@ -690,7 +719,7 @@ function msgErr(e){ const m = (e && (e.message || "")) || ""; if ((e && e.code =
   if (e && e.code === "23505") return "Ya existe un registro con ese número o código."; return "No se ha podido guardar. Revisa la conexión y vuelve a intentarlo."; }
 function saveSup(sid, patch){
   const s = Object.assign({}, sup(sid), patch); const i = state.suppliers.findIndex(x => x._id === sid); state.suppliers[i] = s; render();
-  const M = { plazo:"plazo_semanas", transito:"transito_semanas", despacho:"despacho_semanas", pagoDias:"dias_pago_antes_embarque", cobertura:"cobertura_semanas" };
+  const M = { plazo:"plazo_semanas", transito:"transito_semanas", despacho:"despacho_semanas", fpId:"forma_pago_id", cobertura:"cobertura_semanas" };
   const row = {}; for (const k of Object.keys(patch)) if (M[k]) row[M[k]] = patch[k];
   return enqueue(sid, async () => chk(await sb.schema("maestros").from("proveedores").update(row).eq("id", s.dbId)));
 }
@@ -723,6 +752,72 @@ function delOrder(o){
   state.orders = state.orders.filter(x => x._id !== o._id); render();
   return enqueue(o._id, async () => { const id = o.dbId || S.idMap[o._id]; if (id) chk(await sb.schema("compras").from("pedidos").delete().eq("id", id)); });
 }
+
+/* ===== Notas (pedidos y entradas aún sin pedido) ===== */
+function notas(o, ph){
+  const cw=el("div","comments"); const cl=el("label",null,"Notas"); const ta=el("textarea"); ta.rows=2; ta.value=o.comentarios||""; ta.disabled=!state.canWrite; ta.dataset.k="com|"+o._id;
+  ta.placeholder=state.canWrite?ph:"Sin notas"; ta.id="com-"+o._id; cl.htmlFor=ta.id;
+  ta.addEventListener("change",()=>{const v=ta.value.trim(); if(v!==(o.comentarios||"")){saveOrder(Object.assign(clone(o),{comentarios:v})); toast("Nota guardada");}});
+  cw.append(cl,ta); return cw;
+}
+/* ===== Menú de filas visibles en la revisión de artículos ===== */
+function filasMenu(c){
+  const rows=rowsFor(c), hide=state.filters.hide, vis=rows.filter(([k])=>!hide.has(k)).length;
+  const d=el("details","rowsdd"); if(state.rowsOpen) d.open=true; d.addEventListener("toggle",()=>{state.rowsOpen=d.open;});
+  const sm=el("summary",null,`Filas visibles: ${vis} de ${rows.length}`); d.append(sm);
+  const pn=el("div","rowsp");
+  for(const [k,label] of rows){ const l=el("label"); const cb=el("input"); cb.type="checkbox"; cb.checked=!hide.has(k);
+    cb.addEventListener("change",()=>{ if(!cb.checked&&rows.filter(([x])=>!hide.has(x)).length<=1){cb.checked=true; toast("Deja al menos una fila visible"); return;} cb.checked?hide.delete(k):hide.add(k); render(); });
+    l.append(cb," "+label); pn.append(l); }
+  const ac=el("div","rowsa"); const all=el("button","btn small","Todas"); all.type="button"; all.addEventListener("click",()=>{hide.clear(); render();});
+  const ess=el("button","btn small","Solo las principales"); ess.type="button"; ess.title="Venta prevista, entradas en almacén y stock real"; ess.addEventListener("click",()=>{hide.clear(); for(const [k] of rows) if(!["dem","entry","man","real"].includes(k)) hide.add(k); render();});
+  ac.append(all,ess); pn.append(ac); d.append(pn); return d;
+}
+/* ===== Formas de pago: selector y alta ===== */
+function selForma(val, onChange, porPedido, supFp){
+  const s=el("select","fpsel");
+  if(porPedido){ const sf=state.formas.find(f=>f.id===supFp)||state.formas[0]; const o0=el("option",null,`La del proveedor${sf?": "+sf.nombre:""}`); o0.value=""; s.append(o0); }
+  for(const f of state.formas){ const o=el("option",null,f.nombre); o.value=String(f.id); s.append(o); }
+  if(state.canWrite){ const on=el("option",null,"＋ Nueva forma de pago…"); on.value="__new"; s.append(on); }
+  s.value=val?String(val):(porPedido?"":(state.formas[0]?String(state.formas[0].id):""));
+  s.addEventListener("change",()=>{ if(s.value==="__new"){ s.value=val?String(val):(porPedido?"":String((state.formas[0]||{}).id||"")); openFp(id=>onChange(id)); return; } onChange(s.value?+s.value:null); });
+  return s;
+}
+let fpCtx=null;
+function fpTramoRow(t){
+  const r=el("div","fprow");
+  const p=el("input"); p.inputMode="decimal"; p.value=t.pct??""; p.className="fp-pct"; p.setAttribute("aria-label","Porcentaje");
+  const m=el("select"); m.className="fp-ref"; for(const [v,l] of [["pedido","Al hacer el pedido (adelantado)"],["carga","A la carga (ETD, embarque)"],["eta","Respecto a la ETA (llegada)"]]){const o=el("option",null,l); o.value=v; m.append(o);} m.value=t.ref||"eta";
+  const dd=el("input"); dd.inputMode="numeric"; dd.className="fp-dias"; dd.value=t.dias!=null?Math.abs(t.dias):(t.ref==="eta"?15:0); dd.setAttribute("aria-label","Días");
+  const sg=el("select"); sg.className="fp-sig"; for(const [v,l] of [["-","días antes"],["+","días después"]]){const o=el("option",null,l); o.value=v; sg.append(o);} sg.value=(t.dias||0)>0?"+":"-";
+  const del=el("button","btn small danger","Quitar"); del.type="button"; del.addEventListener("click",()=>{ if($("#fpTramos").children.length>1) r.remove(); fpResumen(); });
+  for(const x of [p,m,dd,sg]) x.addEventListener("input",fpResumen);
+  r.append(p, el("span",null,"%"), m, dd, sg, del); return r;
+}
+function fpLeer(){ return [...$("#fpTramos").children].map(r=>({pct:num(r.querySelector(".fp-pct").value), ref:r.querySelector(".fp-ref").value, dias:(r.querySelector(".fp-sig").value==="+"?1:-1)*(num(r.querySelector(".fp-dias").value)||0)})); }
+function fpNombre(tr){ if(tr.length===1&&tr[0].ref==="eta") return `Pago ${tramoTxt(tr[0],true)}`;
+  const partes=tr.map((t,i)=>{ const ult=i===tr.length-1&&i>0; const mom=t.ref==="pedido"?"adelantado":t.ref==="carga"?"a la carga":tramoTxt(t,true); return ult?`resto ${mom}`:`${t.pct}% ${mom}`; }); return "Pago "+partes.join(", "); }
+function fpResumen(){ const tr=fpLeer(), sum=tr.reduce((a,t)=>a+(isNaN(t.pct)?0:t.pct),0); $("#fpSuma").textContent=`Suma: ${fmt(sum)||0} %${Math.abs(sum-100)<0.001?"":" (debe ser 100 %)"}`; $("#fpSuma").className="fpsum"+(Math.abs(sum-100)<0.001?"":" bad"); if(!$("#fpNombre").dataset.tocado) $("#fpNombre").value=fpNombre(tr); }
+function openFp(onDone){
+  fpCtx={onDone}; $("#fpErr").textContent=""; const n=$("#fpNombre"); n.value=""; delete n.dataset.tocado;
+  const box=$("#fpTramos"); box.textContent=""; for(const t of [{pct:30,ref:"pedido",dias:0},{pct:70,ref:"eta",dias:-15}]) box.append(fpTramoRow(t));
+  fpResumen(); $("#dlgFp").showModal(); setTimeout(()=>box.querySelector("input").focus(),30);
+}
+$("#fpNombre").addEventListener("input",()=>{$("#fpNombre").dataset.tocado="1";});
+$("#fpAdd").addEventListener("click",()=>{ $("#fpTramos").append(fpTramoRow({pct:"",ref:"eta",dias:-15})); fpResumen(); });
+$("#fpCancel").addEventListener("click",()=>$("#dlgFp").close());
+$("#fFp").addEventListener("submit",async ev=>{
+  ev.preventDefault(); const tr=fpLeer(), nombre=$("#fpNombre").value.trim();
+  if(tr.some(t=>isNaN(t.pct)||t.pct<=0)){ $("#fpErr").textContent="Cada tramo necesita un porcentaje mayor que cero."; return; }
+  if(Math.abs(tr.reduce((a,t)=>a+t.pct,0)-100)>0.001){ $("#fpErr").textContent="Los porcentajes deben sumar 100 %."; return; }
+  if(!nombre){ $("#fpErr").textContent="Ponle un nombre."; return; }
+  if(state.formas.some(f=>f.nombre.toLowerCase()===nombre.toLowerCase())){ $("#fpErr").textContent="Ya existe una forma de pago con ese nombre."; return; }
+  const ant=tr.filter(t=>t.ref==="pedido").reduce((a,t)=>a+t.pct,0), eta=tr.find(t=>t.ref==="eta");
+  const r=await sb.schema("compras").from("formas_pago").insert({ nombre, tramos:tr, orden:(Math.max(0,...state.formas.map(f=>f.orden||0))+1), pct_anticipo:ant, dias_antes_eta: eta?Math.max(0,-eta.dias):0 }).select("id,nombre,tramos,orden").single();
+  if(r.error){ $("#fpErr").textContent=msgErr(r.error); return; }
+  state.formas.push({ id:r.data.id, nombre:r.data.nombre || nombre, tramos:(r.data.tramos || tr).map(t => ({ pct:+t.pct, ref:t.ref, dias:+t.dias || 0 })), orden:r.data.orden }); $("#dlgFp").close(); toast(`Forma de pago creada: ${nombre}`);
+  if(fpCtx&&fpCtx.onDone) fpCtx.onDone(r.data.id); else render();
+});
 
 /* ===== Resumen por proveedor: stock de seguridad y stock previsto ===== */
 const RS = { abiertos:new Set(), semanas:12, medida:"uds" };
