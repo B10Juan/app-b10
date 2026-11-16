@@ -28,7 +28,7 @@ async function saveXlsx(wb, name){ XLSX.writeFile(wb, name, {cellDates:true}); t
 
 const state = {
   suppliers:[], products:[], orders:[], canWrite:false, loaded:{s:false},
-  filters:{q:"",onlyA:false,hide:new Set()}, formas:[], collapsed:new Set(), showDone:false, expanded:new Set(), histOpen:new Set(),
+  filters:{q:"",onlyA:false,hide:new Set(["fis"])}, formas:[], collapsed:new Set(), showDone:false, expanded:new Set(), histOpen:new Set(),
   ordFilter:{sid:"",peds:[],refs:[]}, payFilter:{sup:"",pend:true,paid:false},
   get dd(){ return ctx.ui.dd; }, set dd(v){ ctx.ui.dd = v; },
   get ddq(){ return ctx.ui.ddq; }, set ddq(v){ ctx.ui.ddq = v; },
@@ -234,14 +234,14 @@ function renderArticles(app,sid){
   if(!vis.length){const b=el("tbody"),tr=el("tr"),td=el("td","empty"); td.colSpan=W.length+1; td.style.textAlign="left"; td.textContent=prodsOf(sid).length?"Ningún artículo coincide con el filtro.":"Este proveedor aún no tiene artículos en el planificador. Añádelos con «Nuevo artículo»."; tr.append(td); b.append(tr); t.append(b);}
   wrap.append(t); app.append(wrap);
 }
-function rowsFor(c){return [["dem","Venta prevista"],["entry","Entrada en almacén",null,`ETA + ${c.despacho} sem`],["man","Otras entradas",null,"devoluciones, otros proveedores"],["ped","Pedido a lanzar","x"],["carga","Carga en China (ETD)","x"],["real","Stock real"],["res","Reservas pendientes"],["over","Sobre stock de seguridad"]];}
+function rowsFor(c){return [["dem","Venta prevista"],["entry","Entrada en almacén",null,`ETA + ${c.despacho} sem`],["man","Otras entradas",null,"devoluciones, otros proveedores"],["ped","Pedido a lanzar","x"],["carga","Carga en China (ETD)","x"],["real","Stock disponible",null,"almacén − pedidos por servir"],["fis","Stock real",null,"en almacén"],["res","Reservas pendientes"],["over","Stock disponible − Stock seguridad"]];}
 function productBody(p,r,W,sid,c){
   const tb=el("tbody",p.extinguir?"extb":""), collapsed=state.collapsed.has(p.code), hide=state.filters.hide;
   const h=el("tr","ph"), hc=el("td"); hc.colSpan=W.length+1; const inn=el("div","phin");
   const nb=el("button","name",p.name||p.code); nb.title="Ver o editar los datos del artículo"; nb.addEventListener("click",()=>openProd(p,sid));
   const mv=v=>v==null||v===""?"falta":(fmt(v)||"0");
-  const stk=el("span",p.stockAX?"stk ax":"stk man"); stk.append(`Stock ${mv(p.stock)}`); stk.append(el("small",null,p.stockAX?` AX ${fechaCorta(p.stockFecha)}`:" manual"));
-  stk.title=p.stockAX?`Stock disponible real de AX (clave ${p.clave}), del fichero «${p.stockFichero||""}» actualizado el ${fechaLarga(p.stockFecha)}`:(p.clave?`No hay stock de AX para la clave ${p.clave}: se usa el stock manual`:"Sin clave de stock: se usa el stock manual");
+  const stk=el("span",p.stockAX?"stk ax":"stk man"); stk.append(`Disponible ${mv(p.stock)}`); stk.append(el("small",null,p.stockAX?` AX ${fechaCorta(p.stockFecha)}`:" manual"));
+  stk.title=p.stockAX?`Stock disponible de AX (clave ${p.clave}): ${fmt(p.stock)||0} uds = ${fmt(p.fisico)||0} en almacén − ${fmt(p.pendServir)||0} de pedidos pendientes de servir. Fichero «${p.stockFichero||""}» del ${fechaLarga(p.stockFecha)}`:(p.clave?`No hay stock de AX para la clave ${p.clave}: se usa el stock manual`:"Sin clave de stock: se usa el stock manual");
   inn.append(nb, el("span","code",dispCode(p)+(p.clave&&p.codigo_ax&&p.clave!==p.codigo_ax?` · ${p.clave.slice(p.codigo_ax.length)}`:"")), stk, el("span","meta",`Venta ${mv(p.avg)}/sem  |  Seguridad ${mv(p.ss)}  |  Pallet ${mv(p.pallet)}  |  Precio ${p.price==null||p.price===""?"falta":fmtE2(p.price)}`));
   if(p.extinguir) inn.append(el("span","tag ext","A extinguir: no pedir"));
   if(r.miss.length&&!p.extinguir){const mb=el("button","tag bad",`Faltan datos: ${r.miss.join(", ")}. Completar`); mb.addEventListener("click",()=>openProd(p,sid)); inn.append(mb);}
@@ -280,6 +280,7 @@ function productBody(p,r,W,sid,c){
       else if(k==="ped"){td.textContent=fmt(r.ped[i]); if(r.ped[i]) td.classList.add("ord");}
       else if(k==="carga"){td.textContent=fmt(r.carga[i]); td.classList.add("carga");}
       else if(k==="real"){td.textContent=fmt(r.real[i])||"0"; if(r.real[i]<=1e-9) td.classList.add("zero");}
+      else if(k==="fis"){const v=Math.max(0,r.net[i]+(p.pendServir||0)); td.textContent=fmt(v)||"0"; if(v<=1e-9) td.classList.add("zero");}
       else if(k==="res"){td.textContent=fmt(r.res[i]); td.classList.add("res");}
       else {const v=r.over[i]; td.textContent=fmt(v)||"0"; if(r.net[i]<-1e-9) td.classList.add("break"); else if(v<-1e-9) td.classList.add("under"); else td.classList.add("dim");}
       tr.append(td);
@@ -632,7 +633,7 @@ function exportArticles(sid){
   for(const {p,r} of vis){
     for(const [k,label,opt] of rowsFor(c)){
       if(state.filters.hide.has(k)) continue;
-      const arr={dem:r.dem,entry:r.entry,man:r.man,ped:r.ped,carga:r.carga,real:r.real,res:r.res,over:r.over}[k].map(v=>Math.round(v*100)/100);
+      const arr={dem:r.dem,entry:r.entry,man:r.man,ped:r.ped,carga:r.carga,real:r.real,fis:r.net.map(v=>Math.max(0,v+(p.pendServir||0))),res:r.res,over:r.over}[k].map(v=>Math.round(v*100)/100);
       rows.push([dispCode(p),p.name,label+(k==="entry"?` (ETA + ${c.despacho} sem)`:""),...arr.map(v=>(["entry","man","ped","carga","res"].includes(k)&&!v)?"":v)]);
       if(k==="entry") rows.push([dispCode(p),p.name,"Situación de la entrada",...r.tone.map(t=>TONE[t]||"")]);
     }
@@ -677,7 +678,7 @@ async function cargar(){
       sb.schema("maestros").from("articulo_proveedor").select("id,articulo_id,proveedor_id,precio,moneda,uds_pallet,orden,clave_stock,a_extinguir,venta_media_semanal,stock_seguridad,stock_manual,descripcion,modelo,articulos(id,codigo_ax,descripcion,modelo,estado)").eq("planificar", true).range(0, 4999),
       sb.schema("compras").from("prevision_venta").select("articulo_proveedor_id,semana,unidades").gte("semana", key(today)).range(0, 9999),
       sb.schema("compras").from("pedidos").select("*").order("eta"),
-      sb.schema("ax").from("v_stock_actual").select("clave,disponible_real,fecha_stock,fichero").range(0, 9999),
+      sb.schema("ax").from("v_stock_actual").select("clave,disponible_real,fisico,fecha_stock,fichero").range(0, 9999),
       sb.schema("compras").from("formas_pago").select("id,nombre,tramos,orden,activa").order("orden").order("id"),
       sb.schema("compras").from("entradas_manuales").select("id,articulo_proveedor_id,semana,cantidad,motivo,comentario").gte("semana", key(addW(today,-1))).range(0, 9999),
     ]);
@@ -695,7 +696,7 @@ async function cargar(){
     state.products = ap.data.filter(a => a.articulos).map(a => { const sx = a.clave_stock ? stock.get(a.clave_stock) : null; return {
       _id:"ap-"+a.id, apId:a.id, artId:a.articulos.id, code:String(a.id), codigo_ax:a.articulos.codigo_ax, estado:a.articulos.estado, clave:a.clave_stock || "",
       name:a.descripcion || a.articulos.descripcion, model:a.modelo || a.articulos.modelo || "", avg:num0(a.venta_media_semanal), ss:num0(a.stock_seguridad),
-      stockAX: !!sx, stock: sx ? +sx.disponible_real : num0(a.stock_manual), stockManual:num0(a.stock_manual), stockFecha: sx ? sx.fecha_stock : null, stockFichero: sx ? sx.fichero : null,
+      stockAX: !!sx, stock: sx ? +sx.disponible_real : num0(a.stock_manual), fisico: sx ? +sx.fisico : num0(a.stock_manual), pendServir: sx ? Math.max(0, (+sx.fisico || 0) - (+sx.disponible_real || 0)) : 0, stockManual:num0(a.stock_manual), stockFecha: sx ? sx.fecha_stock : null, stockFichero: sx ? sx.fichero : null,
       extinguir: !!a.a_extinguir, pallet:a.uds_pallet, price:num0(a.precio), supplier:"prov-"+a.proveedor_id, sort:a.orden ?? 999, overrides: ov[a.id] || {}, manual: man[a.id] || {} }; });
     state.orders = pe.data.map(fromRow);
     state.loaded.s = true; S.loaded = true;
@@ -770,7 +771,7 @@ function filasMenu(c){
     cb.addEventListener("change",()=>{ if(!cb.checked&&rows.filter(([x])=>!hide.has(x)).length<=1){cb.checked=true; toast("Deja al menos una fila visible"); return;} cb.checked?hide.delete(k):hide.add(k); render(); });
     l.append(cb," "+label); pn.append(l); }
   const ac=el("div","rowsa"); const all=el("button","btn small","Todas"); all.type="button"; all.addEventListener("click",()=>{hide.clear(); render();});
-  const ess=el("button","btn small","Solo las principales"); ess.type="button"; ess.title="Venta prevista, entradas en almacén y stock real"; ess.addEventListener("click",()=>{hide.clear(); for(const [k] of rows) if(!["dem","entry","man","real"].includes(k)) hide.add(k); render();});
+  const ess=el("button","btn small","Solo las principales"); ess.type="button"; ess.title="Venta prevista, entradas en almacén y stock disponible"; ess.addEventListener("click",()=>{hide.clear(); for(const [k] of rows) if(!["dem","entry","man","real"].includes(k)) hide.add(k); render();});
   ac.append(all,ess); pn.append(ac); d.append(pn); return d;
 }
 /* ===== Formas de pago: selector y alta ===== */
@@ -820,7 +821,9 @@ $("#fFp").addEventListener("submit",async ev=>{
 });
 
 /* ===== Resumen por proveedor: stock de seguridad y stock previsto ===== */
-const RS = { abiertos:new Set(), semanas:12, medida:"uds" };
+const RS = { abiertos:new Set(), semanas:12, medida:"uds", tipo:"disp" };
+const stHoy = p => RS.tipo === "real" ? (p.stockAX ? (p.fisico || 0) : (p.stock || 0)) : (p.stock || 0);   // disponible o en almacén
+const stPrev = (p, v) => v == null ? null : RS.tipo === "real" ? v + (p.pendServir || 0) : v;
 // Número con punto de miles (también en 4 cifras) y los decimales indicados como máximo
 const fmtN = (v, d=0) => { if (v == null || !isFinite(v)) return ""; const r = Math.round(v * 10**d) / 10**d; const [e, f] = Math.abs(r).toFixed(d).split("."); const fx = f ? f.replace(/0+$/, "") : ""; return (r < 0 ? "-" : "") + e.replace(/\B(?=(\d{3})+(?!\d))/g, ".") + (fx ? "," + fx : ""); };
 function renderStock(app){
@@ -833,24 +836,25 @@ function resumenProveedores(app){
   const box = el("section","resumen pad");
   const ctl = el("div","toolbar rctl");
   const sg = (opts, v, on) => { const s2 = el("div","seg"); for (const [k,l] of opts){ const b = el("button",null,l); b.type = "button"; b.setAttribute("aria-pressed", String(k === v)); b.addEventListener("click", () => on(k)); s2.append(b); } return s2; };
+  const l0 = el("label"); l0.append("Stock ", sg([["disp","disponible"],["real","real"]], RS.tipo, v => { RS.tipo = v; render(); })); l0.title = "Disponible: en almacén menos los pedidos de clientes pendientes de servir. Real: lo que hay en almacén.";
   const l1 = el("label"); l1.append("Ver en ", sg([["uds","unidades"],["coste","coste"]], RS.medida, v => { RS.medida = v; render(); }));
   const l2 = el("label"); l2.append("Semanas ", sg([[8,"8"],[12,"12"],[26,"26"],[52,"52"]], RS.semanas, v => { RS.semanas = v; render(); }));
   const allOpen = el("button","btn small", RS.abiertos.size ? "Plegar todo" : "Desplegar todo");
   allOpen.addEventListener("click", () => { if (RS.abiertos.size) RS.abiertos.clear(); else for (const s of state.suppliers) if (prodsOf(s._id).length) RS.abiertos.add(s._id); render(); });
   const ex = el("button","btn small","Exportar a Excel"); ex.addEventListener("click", exportResumen);
   const leg = el("div","rleg"); leg.append(el("span","l-under","bajo stock de seguridad"), el("span","l-neg","rotura"), el("span","l-low","cubre menos de 4 semanas"));
-  ctl.append(l1, l2, allOpen, ex, leg); box.append(ctl);
+  ctl.append(l0, l1, l2, allOpen, ex, leg); box.append(ctl);
   const W = weeks(state.suppliers[0] ? state.suppliers[0]._id : "").slice(0, RS.semanas);
   const sups = state.suppliers.filter(s => prodsOf(s._id).length).sort((a,b) => (a.name||"").localeCompare(b.name||""));
   const tw = el("div","rwrap"); const t = el("table","rtbl");
   // cabecera en dos niveles y títulos en dos renglones
   const th = el("thead");
   const g1 = el("tr","grp"); const gc = (txt, n, cls) => { const x = el("th",cls||"",txt); x.colSpan = n; return x; };
-  g1.append(gc("",2,"fix"), gc("",2), gc("Stock de seguridad",3,"gs"), gc("Hoy",2,"gs"), gc(`Stock previsto por semana (${RS.medida === "coste" ? "coste" : "unidades"})`, W.length, "gs gw"));
+  g1.append(gc("",2,"fix"), gc("",2), gc("Stock de seguridad",3,"gs"), gc("Hoy",2,"gs"), gc(`Stock ${RS.tipo === "real" ? "real" : "disponible"} previsto por semana (${RS.medida === "coste" ? "coste" : "unidades"})`, W.length, "gs gw"));
   const hr = el("tr");
   const h2 = (a, b, cls) => { const x = el("th",cls||""); x.append(a); if (b){ x.append(el("br")); x.append(b); } return x; };
   hr.append(h2("Proveedor", "y artículo", "l fix f1"), h2("Descripción", null, "l fix f2"), h2("Precio", null, "n"), h2("Venta media","semanal","n"),
-    h2("Unidades", null, "n gsl"), h2("Coste", null, "n"), h2("Semanas", "que cubre", "n"), h2("Stock", "real", "n gsl"), h2("Coste", null, "n"));
+    h2("Unidades", null, "n gsl"), h2("Coste", null, "n"), h2("Semanas", "que cubre", "n"), h2("Stock", RS.tipo === "real" ? "real" : "disponible", "n gsl"), h2("Coste", null, "n"));
   W.forEach((w,i) => { const x = el("th","n wk"+(i===0?" gsl":"")); x.append(wLabel(w)); x.append(el("br")); x.append(el("small",null,dShort(w))); hr.append(x); });
   th.append(g1, hr); t.append(th);
   const tb = el("tbody"); const tot = {};
@@ -860,9 +864,9 @@ function resumenProveedores(app){
   const cel = (txt, cls) => { const td = el("td", cls || ""); const sp = el("span", null, txt); td.append(sp); return td; };
   for (const s of sups){
     const c = cfg(s._id), mon = c.moneda || "EUR", ps = prodsOf(s._id), Ws = weeks(s._id);
-    const rows = ps.map(p => { const r = calc(p, s._id); const idx = W.map(w => Ws.findIndex(x => key(x) === key(w))); return { p, r, prev: idx.map(i => i >= 0 ? r.net[i] : null) }; });
+    const rows = ps.map(p => { const r = calc(p, s._id); const idx = W.map(w => Ws.findIndex(x => key(x) === key(w))); return { p, r, prev: idx.map(i => i >= 0 ? stPrev(p, r.net[i]) : null) }; });
     const ssU = ps.reduce((a,p) => a + (p.ss || 0), 0), ssC = ps.reduce((a,p) => a + (p.ss || 0) * (p.price || 0), 0);
-    const stU = ps.reduce((a,p) => a + Math.max(0, p.stock || 0), 0), stC = ps.reduce((a,p) => a + Math.max(0, p.stock || 0) * (p.price || 0), 0);
+    const stU = ps.reduce((a,p) => a + Math.max(0, stHoy(p)), 0), stC = ps.reduce((a,p) => a + Math.max(0, stHoy(p)) * (p.price || 0), 0);
     const wk = W.map((_,i) => rows.reduce((a,x) => a + (RS.medida === "coste" ? Math.max(0, x.prev[i] || 0) * (x.p.price || 0) : (x.prev[i] || 0)), 0));
     add(mon,"ss",ssU); add(mon,"ssc",ssC); add(mon,"st",stU); add(mon,"stc",stC); add(mon,"w",wk);
     const open = RS.abiertos.has(s._id);
@@ -883,7 +887,7 @@ function resumenProveedores(app){
       cs.append(inp);
       const cvp = cov(p.ss || 0, p.avg || 0);
       r2.append(cs, cel(p.ss==null||p.price==null?"":fmtC(p.ss*p.price,mon)), cel(cvp==null?"":fmtN(cvp,1), cvp!=null&&cvp<4&&!p.extinguir?"low":""),
-        cel(fmtN(p.stock,0), "gsl"+((p.stock||0)<0?" neg":"")), cel(p.price==null?"":fmtC(Math.max(0,p.stock||0)*p.price,mon)));
+        cel(fmtN(stHoy(p),0), "gsl"+(stHoy(p)<0?" neg":"")), cel(p.price==null?"":fmtC(Math.max(0,stHoy(p))*p.price,mon)));
       x.prev.forEach((v,i) => r2.append(cel(v==null?"":(RS.medida === "coste" ? fmtC(Math.max(0,v)*(p.price||0),mon) : fmtN(v,0)), "wk"+(i===0?" gsl":"")+(v==null?"":v<-1e-9?" neg":v<(p.ss||0)&&!p.extinguir?" under":""))));
       tb.append(r2);
     }
@@ -900,10 +904,10 @@ function resumenProveedores(app){
 }
 function exportResumen(){
   const W = RS._W || [], wb = XLSX.utils.book_new();
-  const A = [["Proveedor","Moneda","Código","Descripción","Modelo","A extinguir","Precio","Venta media semanal","Stock seguridad","Coste stock seguridad","Semanas que cubre","Stock real","Coste stock real", ...W.map(w => `${wLabel(w)} ${dShort(w)}`)]];
+  const A = [["Proveedor","Moneda","Código","Descripción","Modelo","A extinguir","Precio","Venta media semanal","Stock seguridad","Coste stock seguridad","Semanas que cubre",RS.tipo==="real"?"Stock real":"Stock disponible",RS.tipo==="real"?"Coste stock real":"Coste stock disponible", ...W.map(w => `${wLabel(w)} ${dShort(w)}`)]];
   for (const s of RS._sups || []){ const mon = cfg(s._id).moneda || "EUR", Ws = weeks(s._id);
-    for (const p of prodsOf(s._id)){ const r = calc(p, s._id); const prev = W.map(w => { const i = Ws.findIndex(x => key(x) === key(w)); return i >= 0 ? Math.round(r.net[i]*100)/100 : ""; });
-      A.push([s.name, mon, dispCode(p), p.name, p.model || "", p.extinguir ? "Sí" : "", p.price ?? "", p.avg ?? "", p.ss ?? "", p.ss != null && p.price != null ? Math.round(p.ss*p.price*100)/100 : "", p.avg ? Math.round((p.ss||0)/p.avg*10)/10 : "", p.stock ?? "", p.price != null ? Math.round(Math.max(0,p.stock||0)*p.price*100)/100 : "", ...prev]); } }
+    for (const p of prodsOf(s._id)){ const r = calc(p, s._id); const prev = W.map(w => { const i = Ws.findIndex(x => key(x) === key(w)); return i >= 0 ? Math.round(stPrev(p, r.net[i])*100)/100 : ""; });
+      A.push([s.name, mon, dispCode(p), p.name, p.model || "", p.extinguir ? "Sí" : "", p.price ?? "", p.avg ?? "", p.ss ?? "", p.ss != null && p.price != null ? Math.round(p.ss*p.price*100)/100 : "", p.avg ? Math.round((p.ss||0)/p.avg*10)/10 : "", stHoy(p), p.price != null ? Math.round(Math.max(0,stHoy(p))*p.price*100)/100 : "", ...prev]); } }
   XLSX.utils.book_append_sheet(wb, sheet(A, [24,6,18,34,12,10,10,12,12,14,12,10,14, ...W.map(() => 9)]), "Resumen por proveedor");
   saveXlsx(wb, `Resumen_stock_proveedores_${stamp()}.xlsx`);
 }
