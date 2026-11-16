@@ -2,7 +2,7 @@
 // Datos en el esquema «rrhh» de Supabase (migraciones 19 a 23).
 // Permisos: «rrhh» para los costes; «datos» (o «rrhh») para las fichas de personas y la estructura de departamentos.
 import { sb, render, cabecera, nivel } from "../app.js";
-import { el, toast, sheet, saveXlsx, stamp } from "../util.js";
+import { el, toast, sheet, saveXlsx, stamp, exportarVista } from "../util.js";
 
 const MES = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
 const COL = { ord:"#7A8C99", ind:"#C2362B", ext:"#B9A27A", ett:"#0F8A86" };
@@ -88,7 +88,9 @@ export function renderRrhh(app){
     const a = el("a",null,t); a.href = "#personas-costes"; if (R.tab === k) a.setAttribute("aria-current","page"); a.addEventListener("click", e => { e.preventDefault(); R.tab = k; render(); }); nav.append(a); }
   const acc = el("span"); acc.style.marginLeft = "auto"; acc.style.display = "flex"; acc.style.gap = "8px";
   if (nivel("datos") || nivel("rrhh")){ const fd = el("a","btn small","Fichas y estructura ›"); fd.href = "#datos"; fd.title = "Formulario de introducción de datos"; acc.append(fd); }
-  const ex = el("button","btn small","Exportar a Excel"); ex.addEventListener("click", exportar); acc.append(ex);
+  const TAB_LAB = { resumen:"Resumen", seccion:"Por seccion", empleado:"Por empleado", ett:"ETT" };
+  const exv = el("button","btn small","Exportar vista a Excel"); exv.title = "Descarga las tablas que estás viendo en esta pestaña"; exv.addEventListener("click", () => exportarVista(box, "Costes " + TAB_LAB[R.tab]));
+  const ex = el("button","btn small","Exportar todo"); ex.title = "Resumen, personas con retribución y coste por empleado"; ex.addEventListener("click", exportar); acc.append(exv, ex);
   if (puedeCostes()){
     const inp = el("input"); inp.type = "file"; inp.accept = ".xlsx,.xls"; inp.hidden = true; inp.multiple = true;
     const up = el("button","btn primary small","Cargar nómina (imputación de costes)"); up.title = "Fichero mensual «Imputación de costes» (o el de paga extra)"; up.addEventListener("click", () => inp.click());
@@ -121,7 +123,10 @@ export function renderDatos(app){
   const inc = R.data.personas.filter(p => activa(p) && pendientes(p).length).length;
   for (const [k,t] of [["personas", "Personas" + (inc ? ` (${inc} incompletas)` : "")],["estructura","Estructura de departamentos"]]){
     const a = el("a",null,t); a.href = "#datos"; if (R.tabD === k) a.setAttribute("aria-current","page"); a.addEventListener("click", e => { e.preventDefault(); R.tabD = k; render(); }); nav.append(a); }
-  if (nivel("rrhh")){ const acc = el("span"); acc.style.marginLeft = "auto"; const cl = el("a","btn small","Costes de personal ›"); cl.href = "#personas-costes"; acc.append(cl); nav.append(acc); }
+  const acc = el("span"); acc.style.cssText = "margin-left:auto;display:flex;gap:8px";
+  const exv = el("button","btn small","Exportar vista a Excel"); exv.addEventListener("click", () => exportarVista(box, R.tabD === "estructura" ? "Estructura departamentos" : "Personas")); acc.append(exv);
+  if (nivel("rrhh")){ const cl = el("a","btn small","Costes de personal ›"); cl.href = "#personas-costes"; acc.append(cl); }
+  nav.append(acc);
   box.append(nav);
   if (R.tabD === "estructura") tabEstructura(box); else tabPersonas(box);
 }
@@ -290,16 +295,32 @@ function tabPersonas(box){
     kp("Fichas incompletas", String(act.filter(p => pendientes(p).length).length), "faltan datos obligatorios"),
     kp("% temporal", pctf(act.length ? act.filter(p => p.tipo_vinculo === "ETT" || p.tipo_contrato === "Temporal").length / act.length : null), "ETT + contrato temporal"));
   box.append(k);
-  const tw = el("div","tblwrap"); const t = el("table","tbl"); const hr = el("tr"); for (const h of ["Código","Nombre","Situación","Vínculo","Clasif.","Grupo prof.","Departamento","Puesto / categoría","Contrato","Alta","Baja","Pendiente"]) hr.append(el("th",null,h)); t.append(el("thead")); t.tHead.append(hr);
+  const venc = act.filter(p => contratoVencido(p));
+  if (venc.length){ const w = el("p","hint", `Contrato de ETT vencido sin actualizar (${venc.length}): ${venc.map(p => p.nombre).join(", ")}. Abre la ficha y añade la prórroga o pon la baja definitiva.`); w.style.color = "var(--red)"; box.append(w); }
+  const tw = el("div","tblwrap"); const t = el("table","tbl"); const hr = el("tr"); for (const h of ["Código","Nombre","Situación","Vínculo","Clasif.","Grupo prof.","Departamento","Puesto / categoría","Contrato","Alta","Baja definitiva","Inicio contrato ETT","Fin contrato ETT","Pendiente"]) hr.append(el("th",null,h)); t.append(el("thead")); t.tHead.append(hr);
   const tb = el("tbody");
   for (const p of L){ const tr = el("tr", activa(p) ? null : "paid"); tr.style.cursor = "pointer"; tr.addEventListener("click", () => ficha(p));
     const pend = pendientes(p); const tp = el("td"); for (const x of pend) { tp.append(el("span","tag warn",x), " "); }
     const st = situacion(p), tst = el("td"); tst.append(el("span","tag " + st.cls, st.t));
-    tr.append(el("td",null,p.codigo), el("td",null,p.nombre), tst, el("td",null,p.tipo_vinculo + (p.empresa_ett ? " · " + p.empresa_ett : "")), el("td",null,p.clasificacion || ""), el("td",null,p.grupo_profesional || ""), el("td",null,p.departamento || ""), el("td",null,p.puesto || p.categoria || ""), el("td",null,p.tipo_contrato || ""), el("td",null,fec(p.fecha_alta)), el("td",null,fec(p.fecha_baja) + (p.motivo_baja ? ` (${p.motivo_baja})` : "")), tp);
+    tr.append(el("td",null,p.codigo), el("td",null,p.nombre), tst, el("td",null,p.tipo_vinculo + (p.empresa_ett ? " · " + p.empresa_ett : "")), el("td",null,p.clasificacion || ""), el("td",null,p.grupo_profesional || ""), el("td",null,p.departamento || ""), el("td",null,p.puesto || p.categoria || ""), el("td",null,p.tipo_contrato || ""), el("td",null,fec(p.fecha_alta)), el("td",null,fec(p.fecha_baja) + (p.motivo_baja ? ` (${p.motivo_baja})` : "")), ...celdasContrato(p), tp);
     tb.append(tr); }
-  if (!L.length){ const tr = el("tr"); const td = el("td","empty","No hay personas con estos filtros."); td.colSpan = 12; tr.append(td); tb.append(tr); }
+  if (!L.length){ const tr = el("tr"); const td = el("td","empty","No hay personas con estos filtros."); td.colSpan = 14; tr.append(td); tb.append(tr); }
   t.append(tb); tw.append(t); box.append(tw);
   box.append(el("p","hint","Pulsa una persona para ver o editar su ficha. Para guardar basta con el nombre y el código (y la empresa si es de ETT); el resto se puede completar después. Las fichas a las que les falten clasificación, departamento, contrato o fecha de alta salen como incompletas."));
+}
+
+// Contrato de puesta a disposición en vigor (o, si no hay, el último) y aviso de vencido
+function contratoActual(p){
+  const per = R.data.periodos.filter(x => x.persona_id === p.id).sort((a,b) => a.fecha_inicio < b.fecha_inicio ? -1 : 1); if (!per.length) return null;
+  return per.find(x => x.fecha_inicio <= hoyKey && (!x.fecha_fin || x.fecha_fin >= hoyKey)) || per[per.length - 1];
+}
+const contratoVencido = p => { if (p.tipo_vinculo !== "ETT" || !activa(p)) return false; const c = contratoActual(p); return !!(c && c.fecha_fin && c.fecha_fin < hoyKey); };
+function celdasContrato(p){
+  if (p.tipo_vinculo !== "ETT") return [el("td"), el("td")];
+  const c = contratoActual(p); if (!c){ const td = el("td",null,"sin contrato"); td.style.color = "var(--red)"; return [td, el("td")]; }
+  const fin = el("td",null, c.fecha_fin ? fec(c.fecha_fin) : "sin fin");
+  if (contratoVencido(p)){ fin.style.color = "var(--red)"; fin.style.fontWeight = "700"; fin.title = "Contrato vencido: actualízalo en la ficha"; }
+  return [el("td",null,fec(c.fecha_inicio)), fin];
 }
 
 // Diálogo de ficha (alta, edición, baja y periodos ETT)
@@ -347,14 +368,27 @@ async function ficha(p){
   // periodos ETT y movimientos
   if (!nueva){
     if (p.tipo_vinculo === "ETT"){
-      const per = D.periodos.filter(x => x.persona_id === p.id);
+      const per = D.periodos.filter(x => x.persona_id === p.id).sort((a,b) => a.fecha_inicio < b.fecha_inicio ? -1 : 1);
       const d = el("div","card"); d.style.margin = "4px 0 12px"; d.append(el("b",null,"Contratos de puesta a disposición"));
-      const ul = el("ul"); for (const x of per) ul.append(el("li",null,`${fec(x.fecha_inicio)} – ${x.fecha_fin ? fec(x.fecha_fin) : "sin fin"} · ${x.empresa_ett}${x.comentario ? " · " + x.comentario : ""}`)); d.append(ul);
-      if (ed){ const g = el("div","f2"); const a = el("input"); a.type = "date"; const b = el("input"); b.type = "date"; const ad = el("button","btn small","Añadir contrato o prórroga"); ad.type = "button";
-        ad.addEventListener("click", async () => { if (!a.value){ a.focus(); return; } const r = await sch().from("ett_periodos").insert({ persona_id:p.id, empresa_ett:p.empresa_ett, fecha_inicio:a.value, fecha_fin:b.value || null }); if (r.error){ toast("No se ha podido guardar el contrato"); return; }
-          if (I.fecha_baja.value && b.value && b.value > I.fecha_baja.value){ await sch().from("personas").update({ fecha_baja:null, motivo_baja:null }).eq("id", p.id); }
-          toast("Contrato añadido"); dlg.close(); recargar(); });
-        const da = el("div","f"); da.append(el("label",null,"Inicio"), a); const db = el("div","f"); db.append(el("label",null,"Fin"), b); g.append(da, db); d.append(g, ad); }
+      let sel = contratoActual(p);
+      const a = el("input"); a.type = "date"; const b = el("input"); b.type = "date"; const lab = el("p","hint");
+      const cargarSel = () => { a.value = sel ? sel.fecha_inicio : ""; b.value = sel && sel.fecha_fin ? sel.fecha_fin : ""; lab.textContent = sel ? `Fechas del contrato ${fec(sel.fecha_inicio)} – ${sel.fecha_fin ? fec(sel.fecha_fin) : "sin fin"}: cámbialas y pulsa «Guardar cambios», o pon las de la prórroga y pulsa «Añadir prórroga».` : "Sin contratos: pon las fechas y pulsa «Añadir contrato»."; };
+      const ul = el("ul"); for (const x of per){ const li = el("li"); const venc = x === contratoActual(p) && x.fecha_fin && x.fecha_fin < hoyKey;
+        const s = el("span",null,`${fec(x.fecha_inicio)} – ${x.fecha_fin ? fec(x.fecha_fin) : "sin fin"} · ${x.empresa_ett}${x.comentario ? " · " + x.comentario : ""}${venc ? " (vencido)" : x.fecha_inicio <= hoyKey && (!x.fecha_fin || x.fecha_fin >= hoyKey) ? " (en vigor)" : ""} `); if (venc) s.style.color = "var(--red)"; li.append(s);
+        if (ed){ const eb = el("button","btn small","Editar"); eb.type = "button"; eb.addEventListener("click", () => { sel = x; cargarSel(); a.focus(); }); const xb = el("button","btn small","Eliminar"); xb.type = "button";
+          xb.addEventListener("click", async () => { if (!confirm("¿Eliminar este contrato?")) return; const r = await sch().from("ett_periodos").delete().eq("id", x.id); if (r.error){ toast("No se ha podido eliminar"); return; } toast("Contrato eliminado"); dlg.close(); recargar(); }); li.append(eb, " ", xb); }
+        ul.append(li); } d.append(ul);
+      if (ed){ const g = el("div","f2");
+        const quitaBaja = async () => { if (I.fecha_baja.value && b.value && b.value > I.fecha_baja.value) await sch().from("personas").update({ fecha_baja:null, motivo_baja:null }).eq("id", p.id); };
+        const up = el("button","btn small primary","Guardar cambios"); up.type = "button";
+        up.addEventListener("click", async () => { if (!sel) return toast("No hay contrato que modificar: usa «Añadir contrato»"); if (!a.value){ a.focus(); return; } if (b.value && b.value < a.value) return toast("El fin no puede ser anterior al inicio");
+          const r = await sch().from("ett_periodos").update({ fecha_inicio:a.value, fecha_fin:b.value || null }).eq("id", sel.id); if (r.error){ toast("No se ha podido guardar el contrato"); return; } await quitaBaja(); toast("Contrato actualizado"); dlg.close(); recargar(); });
+        const ad = el("button","btn small", per.length ? "Añadir prórroga (contrato nuevo)" : "Añadir contrato"); ad.type = "button";
+        ad.addEventListener("click", async () => { if (!a.value){ a.focus(); return; } if (b.value && b.value < a.value) return toast("El fin no puede ser anterior al inicio");
+          if (sel && a.value === sel.fecha_inicio && !confirm("Las fechas de inicio coinciden con el contrato actual. ¿Añadir de todos modos un contrato nuevo? (para cambiar el actual usa «Guardar cambios»)")) return;
+          const r = await sch().from("ett_periodos").insert({ persona_id:p.id, empresa_ett:p.empresa_ett, fecha_inicio:a.value, fecha_fin:b.value || null }); if (r.error){ toast("No se ha podido guardar el contrato"); return; } await quitaBaja(); toast("Contrato añadido"); dlg.close(); recargar(); });
+        const da = el("div","f"); da.append(el("label",null,"Inicio"), a); const db = el("div","f"); db.append(el("label",null,"Fin"), b); g.append(da, db);
+        const bs = el("div"); bs.style.cssText = "display:flex;gap:8px;flex-wrap:wrap"; if (per.length) bs.append(up); bs.append(ad); d.append(g, lab, bs); cargarSel(); }
       f.append(d);
     }
     f.append(tarjetaAusencias(p, ed, () => dlg.close()));

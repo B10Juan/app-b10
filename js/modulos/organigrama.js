@@ -2,7 +2,7 @@
 // Se define la estructura (dirección general, apoyo a DG, direcciones/pilares y departamentos), se ve como organigrama
 // y se exporta a PowerPoint con formas editables. Datos en rrhh.organigramas y rrhh.organigrama_nodos (migración 24).
 import { sb, render, cabecera, nivel } from "../app.js";
-import { el, toast, safe } from "../util.js";
+import { el, toast, safe, exportarVista } from "../util.js";
 
 const O = { lista:null, sel:null, nodos:[], loading:false, personas:[] };
 const sch = () => sb.schema("rrhh");
@@ -139,6 +139,7 @@ export function renderOrganigrama(app){
   const acc = el("div","acc"); acc.style.display = "flex"; acc.style.gap = "8px"; acc.style.flexWrap = "wrap";
   const bt = (t, cls, fn) => { const b = el("button","btn " + cls, t); b.type = "button"; b.addEventListener("click", fn); acc.append(b); return b; };
   if (org) bt("Exportar a PowerPoint","primary", async () => { try { await exportarPptx(org, O.nodos); } catch(e){ console.error(e); toast(e.message || "No se ha podido exportar"); } });
+  if (org) bt("Exportar a Excel","", () => exportarVista(box, "Organigrama " + (org.subtitulo || org.titulo)));
   if (ed){ if (org){ bt("Título y textos","", () => editarOrg(org)); bt("Duplicar","", () => duplicar(org)); }
     bt("Nuevo organigrama","", () => editarOrg(null)); if (org) bt("Eliminar","", () => eliminarOrg(org)); }
   c.append(acc); box.append(c);
