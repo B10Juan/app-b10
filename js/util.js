@@ -46,3 +46,36 @@ export function ddMulti(ui, id, label, opts, sel, onChange, rerender){
 // Exportación a Excel (SheetJS)
 export function sheet(aoa, widths){ const ws = XLSX.utils.aoa_to_sheet(aoa, {cellDates:true}); if (widths) ws["!cols"] = widths.map(w => ({wch:w})); return ws; }
 export function saveXlsx(wb, name){ XLSX.writeFile(wb, name, {cellDates:true}); toast("Archivo exportado"); }
+
+// Exporta a Excel las tablas que se están viendo dentro de «box» (una hoja por tabla).
+// Convierte a número los importes con formato español (1.234,56), los porcentajes y las fechas dd/mm/aaaa.
+export function exportarVista(box, nombre){
+  const tablas = [...box.querySelectorAll("table")].filter(t => t.offsetParent !== null);
+  if (!tablas.length){ toast("No hay ninguna tabla en esta vista"); return; }
+  const valor = td => {
+    const sel = td.querySelector("select"); if (sel) return sel.selectedIndex >= 0 ? sel.options[sel.selectedIndex].text.replace(/^—$/, "") : "";
+    const c = td.cloneNode(true); c.querySelectorAll("button,input,svg").forEach(x => x.remove());
+    const t = c.textContent.replace(/\s+/g, " ").trim();
+    let m;
+    if ((m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(t))) return { n:(Date.UTC(+m[3], +m[2] - 1, +m[1]) - Date.UTC(1899, 11, 30)) / 86400000, z:"dd/mm/yyyy" };
+    if (/^0\d/.test(t) && !t.includes(",")) return t; // códigos con ceros a la izquierda
+    if (/^[+-]?\d{1,3}(\.\d{3})*(,\d+)?( €)?$/.test(t) || /^[+-]?\d+(,\d+)?( €)?$/.test(t)) return { n: +t.replace(/ €$/, "").replace(/\./g, "").replace(",", ".") };
+    if (/^[+-]?\d+(\.\d{3})*(,\d+)? %$/.test(t)) return { n: +t.replace(" %", "").replace(/\./g, "").replace(",", ".") / 100, z: "0.0%" };
+    return t;
+  };
+  const wb = XLSX.utils.book_new(), usados = new Set();
+  tablas.forEach((t, i) => {
+    const filas = [];
+    for (const tr of t.rows){ if (tr.offsetParent === null) continue; const f = []; for (const c of tr.cells){ f.push(valor(c)); for (let k = 1; k < (c.colSpan || 1); k++) f.push(""); } if (f.some(v => v !== "")) filas.push(f); }
+    const aoa = filas.map(f => f.map(v => v && typeof v === "object" && "n" in v ? v.n : v));
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    filas.forEach((f, r) => f.forEach((v, c) => { if (v && typeof v === "object" && "n" in v){ const cell = ws[XLSX.utils.encode_cell({ r, c })]; if (cell) cell.z = v.z || "#,##0.##"; } }));
+    const anchos = []; for (const f of aoa) f.forEach((v, c) => { const l = String(v ?? "").length; anchos[c] = Math.min(45, Math.max(anchos[c] || 6, l + 2)); }); ws["!cols"] = anchos.map(w => ({ wch:w }));
+    // nombre de hoja: el título que tenga encima la tabla
+    let tit = ""; let n = t.closest(".tblwrap") || t; while (n && n !== box && !tit){ let p = n.previousElementSibling; while (p && !tit){ if (/^H[1-4]$/.test(p.tagName)) tit = p.textContent; p = p.previousElementSibling; } n = n.parentElement; }
+    let base = (tit || (tablas.length > 1 ? `${nombre} ${i + 1}` : nombre)).replace(/[\[\]:*?\/\\]/g, " ").replace(/\s+/g, " ").trim().slice(0, 28) || "Hoja", nm = base, k = 2;
+    while (usados.has(nm.toLowerCase())) nm = `${base.slice(0, 26)} ${k++}`; usados.add(nm.toLowerCase());
+    XLSX.utils.book_append_sheet(wb, ws, nm);
+  });
+  saveXlsx(wb, `${safe(nombre)}_${stamp()}.xlsx`);
+}
