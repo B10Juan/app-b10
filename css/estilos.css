@@ -613,3 +613,5 @@ td small.tramo{display:block;color:var(--ink-3);font-size:12px}
 .rowsa{display:flex;gap:6px;border-top:1px solid var(--line);padding-top:8px;margin-top:4px}
 .ph .tog.xt{color:var(--ink-2)}
 .pendcard .comments{margin:10px 0 0}
+/* Evolución del stock: semana con algún artículo en rotura (el total no baja de cero) */
+.rtbl tr.rsup td.rot span{color:var(--red);box-shadow:inset 0 -2px 0 var(--red)}
