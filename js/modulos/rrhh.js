@@ -358,7 +358,7 @@ async function ficha(p){
   // código de nómina vs ETT
   const syncV = () => { const ett = I.tipo_vinculo.value === "ETT"; blkEtt.hidden = !ett; blkNom.hidden = ett; if (ett && nueva && !I.codigo.value){ const sc = sigCodigoEtt(); for (const x of f.querySelectorAll('[data-f="codigo"] input')) x.value = sc; } if (ett && !I.tipo_contrato.value) I.tipo_contrato.value = "Puesta a disposición (ETT)"; if (!ett && nueva && (!I.tipo_contrato.value || I.tipo_contrato.value === "Puesta a disposición (ETT)")) I.tipo_contrato.value = "Indefinido"; };
   // los dos bloques tienen un input «codigo»: dejar uno solo
-  const cods = f.querySelectorAll('[data-f="codigo"] input'); I.codigo = cods[1]; cods[0].addEventListener("input", () => { I.codigo.value = cods[0].value; }); I.codigo.addEventListener("input", () => { cods[0].value = I.codigo.value; }); cods[0].value = I.codigo.value; cods[0].disabled = !ed || !nueva; I.codigo.disabled = !ed || !nueva;
+  const cods = f.querySelectorAll('[data-f="codigo"] input'); I.codigo = cods[1]; cods[0].addEventListener("input", () => { I.codigo.value = cods[0].value; }); I.codigo.addEventListener("input", () => { cods[0].value = I.codigo.value; }); cods[0].value = I.codigo.value; cods[0].disabled = !ed; I.codigo.disabled = !ed; if (!nueva && ed) for (const c of cods) c.parentElement.querySelector(".hint").textContent = "Si lo corriges, se cambia también en sus nóminas.";
   I.tipo_vinculo.addEventListener("change", syncV); syncV(); if (!nueva) I.tipo_vinculo.disabled = true;
   I.departamento.addEventListener("change", async () => { if (I.departamento.value !== "__nuevo") return; const n = (prompt("Nombre del nuevo departamento o sección:") || "").trim(); if (!n){ I.departamento.value = v.departamento || ""; return; }
     const area = (prompt("Área (Producción, Logística, Oficina, Comercial, Dirección…):", "Producción") || "").trim() || null;
@@ -414,6 +414,10 @@ async function ficha(p){
     const row = { nombre:val.nombre, tipo_vinculo:val.tipo_vinculo, empleador: ett ? val.empresa_ett : (val.empleador || "B10"), empresa_ett: ett ? val.empresa_ett : null, clasificacion:val.clasificacion, departamento:val.departamento,
       grupo_profesional:val.grupo_profesional, puesto_id: val.puesto_id ? +val.puesto_id : null, categoria:val.categoria, tipo_contrato:val.tipo_contrato, fecha_fin_contrato:val.fecha_fin_contrato, fecha_alta:val.fecha_alta, fecha_baja:val.fecha_baja, motivo_baja: val.fecha_baja ? val.motivo_baja : null, observaciones:val.observaciones };
     let r;
+    if (!nueva && val.codigo !== p.codigo){
+      if (!confirm(`¿Cambiar el código ${p.codigo} por ${val.codigo}? Se cambia también en las nóminas cargadas de esta persona.`)) return;
+      const rc = await sch().rpc("cambiar_codigo", { p_id:p.id, p_nuevo:val.codigo });
+      if (rc.error){ console.error(rc.error); err.textContent = rc.error.code === "23505" ? (rc.error.message || "Ya existe una persona con ese código.") : "No se ha podido cambiar el código: " + rc.error.message; return; } }
     if (nueva){ row.codigo = val.codigo; r = await sch().from("personas").insert(row).select("id").single();
       if (!r.error && ett && val.fecha_alta) await sch().from("ett_periodos").insert({ persona_id:r.data.id, empresa_ett:val.empresa_ett, fecha_inicio:val.fecha_alta, fecha_fin:finPrev.value || null }); }
     else r = await sch().from("personas").update(row).eq("id", p.id);
