@@ -9,6 +9,7 @@ import { renderTesoreria } from "./modulos/tesoreria.js";
 import { renderPlanificador } from "./modulos/planificador.js";
 import { renderRrhh, renderDatos } from "./modulos/rrhh.js";
 import { renderOrganigrama } from "./modulos/organigrama.js";
+import { renderVacaciones } from "./modulos/vacaciones.js";
 import { logo, conImagen, icono } from "./marca.js";
 
 export const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -31,6 +32,7 @@ const MODULOS = [
   { codigo:"demanda",      ruta:"demanda",  titulo:"Análisis de la demanda", texto:"Evolución de los pedidos de venta desde 2023: comparativas por año, estacionalidad, clientes, productos, zonas y agentes, cartera pendiente y detalle de líneas.", clase:"buy", listo:true },
   { codigo:"tesoreria_prov", ruta:"tesoreria-proveedores", titulo:"Facturas de proveedores pendientes de pago", texto:"Importes pendientes por proveedor y mes de vencimiento, separando lo vencido de lo que vence más adelante, con el detalle de cada factura.", clase:"pay", listo:true },
   { codigo:"rrhh",         ruta:"personas-costes", titulo:"Costes de personal", texto:"Coste de empresa por mes, sección y persona (nómina y ETT), previsión del mes siguiente y control de las ETT.", clase:"pay", listo:true },
+  { codigo:"vacaciones",   ruta:"vacaciones", titulo:"Vacaciones", texto:"Días de vacaciones por trabajador: del año, pendientes de años anteriores, disfrutados y pendientes, con calendario de festivos e informe en PDF.", listo:true },
   { codigo:"organigrama",  ruta:"organigrama", titulo:"Organigrama", texto:"Estructura de dirección, apoyo a la dirección, pilares y departamentos, vista como organigrama y exportable a PowerPoint.", listo:true },
   { codigo:"datos",        ruta:"datos",    titulo:"Formulario introducción de datos", texto:"Tablas maestras de la empresa: fichas de personas (altas, bajas, ausencias) y estructura de clasificación, departamentos y puestos.", listo:true, tambien:"rrhh" },
   { codigo:"crm",          ruta:null,       titulo:"CRM de clientes", texto:"Información de clientes para los delegados.", listo:false },
@@ -42,7 +44,7 @@ const INICIO = [
   { tipo:"carpeta", id:"operaciones", titulo:"Operaciones", texto:"Compras y planificación de las compras de importación.", hijos:["compras","planificador"] },
   { tipo:"usuarios" },
   { tipo:"carpeta", id:"tesoreria",   titulo:"Tesorería",   texto:"Pagos pendientes y previsión de tesorería.", hijos:["tesoreria_prov"] },
-  { tipo:"carpeta", id:"personas",    titulo:"Personas",    texto:"Plantilla, ETT y costes de personal.", hijos:["rrhh","organigrama","datos"] },
+  { tipo:"carpeta", id:"personas",    titulo:"Personas",    texto:"Plantilla, ETT y costes de personal.", hijos:["rrhh","organigrama","datos","vacaciones"] },
   { tipo:"carpeta", id:"comercial",   titulo:"Comercial",   texto:"Clientes y equipo comercial.", hijos:["demanda","crm"] },
 ];
 const carpetaDe = codigo => INICIO.find(x => x.tipo === "carpeta" && x.hijos.includes(codigo));
@@ -68,7 +70,7 @@ function draw(){
   if (md.debe_cambiar_password) return drawPassword(app, true);
   if (r === "contrasena") return drawPassword(app, false);
   const esPlan = r === "planificador" || r === "proveedores" || r === "stock" || /^prov-\d+(-pedidos)?$/.test(r);
-  const esApp = ["compras","compras-ref","proveedores","pagos","usuarios","plan","demanda","stock","tesoreria-proveedores","personas-costes","datos","organigrama"].includes(r) || /^prov-\d+/.test(r);
+  const esApp = ["compras","compras-ref","proveedores","pagos","usuarios","plan","demanda","stock","tesoreria-proveedores","personas-costes","datos","organigrama","vacaciones"].includes(r) || /^prov-\d+/.test(r);
   app.classList.toggle("con-lateral", esApp);
   if (esApp){ app.append(lateral(r)); const m = el("main","contenido"); app.append(m); app = m; }
   if (r === "compras" && nivel("compras")) renderCompras(app);
@@ -81,6 +83,7 @@ function draw(){
   else if (r === "tesoreria-proveedores" && nivel("tesoreria_prov")) renderTesoreria(app);
   else if (r === "personas-costes" && nivel("rrhh")) renderRrhh(app);
   else if (r === "organigrama" && nivel("organigrama")) renderOrganigrama(app);
+  else if (r === "vacaciones" && nivel("vacaciones")) renderVacaciones(app);
   else if (r === "datos" && (nivel("datos") || nivel("rrhh"))) renderDatos(app);
   else if (INICIO.some(x => x.tipo === "carpeta" && x.id === r)) drawCarpeta(app, r);
   else drawInicio(app);
@@ -158,6 +161,7 @@ function lateral(r){
   if (nivel("demanda")) item("#demanda", "demanda", "Demanda", r === "demanda");
   if (nivel("tesoreria_prov")) item("#tesoreria-proveedores", "tesoreria", "Tesorería", r === "tesoreria-proveedores");
   if (nivel("rrhh")) item("#personas-costes", "personas", "Costes RRHH", r === "personas-costes");
+  if (nivel("vacaciones")) item("#vacaciones", "vacaciones", "Vacaciones", r === "vacaciones");
   if (nivel("organigrama")) item("#organigrama", "organigrama", "Organigrama", r === "organigrama");
   if (nivel("datos") || nivel("rrhh")) item("#datos", "datos", "Datos", r === "datos");
   if (isAdmin()) item("#usuarios", "usuarios", "Usuarios", r === "usuarios");

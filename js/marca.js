@@ -22,6 +22,7 @@ export const MARCA = {
     rrhh:         `${W}/2025/12/bathtubs-collecion-b10-02-1300x750.jpg`,
     datos:        `${W}/2025/12/washbasins-collecion-b10-01.jpg`,
     organigrama:  `${W}/2025/12/shower-collecion-b10-02-1300x750.jpg`,
+    vacaciones:   `${W}/2025/12/bathtubs-collecion-b10-01.jpg`,
   },
 };
 
@@ -57,6 +58,7 @@ const P = {
   personas:'<circle cx="12" cy="7" r="3.5"/><path d="M5 21c.6-4 3.3-6.5 7-6.5s6.4 2.5 7 6.5"/><path d="M4 11h3M17 11h3"/>',
   clave:'<circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M17 6l3 3M15 8l2 2"/>',
   datos:'<rect x="5" y="3.5" width="14" height="17.5" rx="1.5"/><path d="M9 3.5h6v3H9z"/><path d="M8.5 11h7M8.5 14.5h7M8.5 18h4"/>',
+  vacaciones:'<rect x="3.5" y="5" width="17" height="15.5" rx="1.5"/><path d="M3.5 9.5h17M8 3v4M16 3v4M12 12.5v5M9.5 15h5"/>',
   organigrama:'<rect x="9" y="3" width="6" height="4.5" rx="1"/><rect x="2.5" y="16.5" width="6" height="4.5" rx="1"/><rect x="15.5" y="16.5" width="6" height="4.5" rx="1"/><path d="M12 7.5v4.5M5.5 16.5V12h13v4.5"/>',
   salir:'<path d="M15 4h4a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-4"/><path d="M10 17l-5-5 5-5M5 12h11"/>',
 };
