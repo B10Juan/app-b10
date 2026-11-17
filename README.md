@@ -73,6 +73,10 @@ actividades › tareas), con vistas de lista, calendario, cronograma y responsab
 (ruta `#plan`) y comparte su inicio de sesión. Datos en el esquema `plan` de Supabase (migración 14).
 Permisos: Gestión de usuarios > Plan de Acción del P.E. (Visualización = solo consulta; Edición = crea y modifica).
 
+## Personas · Vacaciones
+
+Módulo `vacaciones` (carpeta Personas, ruta `#vacaciones`, migración 27). Tablas `rrhh.vac_calendarios` (año, días por defecto —34 laborables—, días laborables de la semana), `rrhh.vac_festivos` (festivos del año: nacional, autonómico, local o de empresa) y `rrhh.vac_saldos` (por persona y año: días del año y pendientes de años anteriores). Los periodos de vacaciones son filas de `rrhh.ausencias` con tipo «Vacaciones» (columna `dias` para ajustar a mano, p. ej. medio día). Los días se cuentan en laborables del calendario y se descuentan primero los de años anteriores. Cada año se crea un calendario nuevo y se pueden traspasar los pendientes del anterior. Informe PDF por trabajador con jsPDF + autotable (jsDelivr, unpkg de reserva). La migración 27 añade también `rrhh.cambiar_codigo(id, nuevo)` para corregir el código de una persona (actualiza sus nóminas).
+
 ## Personas · Organigrama
 
 Módulo `organigrama` (carpeta Personas, ruta `#organigrama`, migración 24). Tablas `rrhh.organigramas` (título, subtítulo, nota) y `rrhh.organigrama_nodos` (dirección general, apoyo a DG/staff, direcciones/pilares y departamentos, con responsable, descripción y orden). Se pueden tener varios organigramas (versiones o empresas), duplicarlos y exportarlos a PowerPoint (pptxgenjs desde jsDelivr, con unpkg de reserva) con formas y textos editables; la vista en pantalla usa la misma geometría que la diapositiva.
