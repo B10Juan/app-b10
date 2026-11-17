@@ -105,13 +105,13 @@ export function renderUsuarios(app){
   const lg = el("div","infobox");
   lg.append(el("b",null,"Niveles de permiso por módulo. "), "Sin acceso: el módulo no aparece. Visualización: puede ver, buscar, filtrar y exportar, pero no introducir ni modificar datos (por ejemplo, en el planificador no puede cambiar previsiones, entradas ni pedidos). Edición: puede además introducir y modificar datos. La base de datos aplica estos permisos, no solo la pantalla.");
   box.append(lg);
-  const tw = el("div","tblwrap"), t = el("table","tbl");
+  const tw = el("div","tblwrap usrwrap"), t = el("table","tbl usrtbl");
   const th = el("thead"), hr = el("tr");
-  for (const x of ["Usuario", ...st.modulos.map(m => m.nombre), "Administrador", "Activo", ""]) hr.append(el("th",null,x));
+  ["Usuario", ...st.modulos.map(m => m.nombre), "Administrador", "Activo", ""].forEach((x,i) => hr.append(el("th", i === 0 ? "fixu" : null, x)));
   th.append(hr); t.append(th);
   const tb = el("tbody");
   for (const u of st.usuarios){
-    const tr = el("tr"); const c0 = el("td"); const pd = el("div","person"); const sp = el("span",null,u.nombre || u.email); sp.append(el("small",null,u.email)); pd.append(sp); c0.append(pd); tr.append(c0);
+    const tr = el("tr"); const c0 = el("td","fixu"); const pd = el("div","person"); const sp = el("span",null,u.nombre || u.email); sp.append(el("small",null,u.email)); pd.append(sp); c0.append(pd); tr.append(c0);
     for (const m of st.modulos){
       const td = el("td"), s = el("select"); s.setAttribute("aria-label",`Permiso de ${u.email} en ${m.nombre}`); s.disabled = u.es_admin;
       for (const [v,l] of NIVELES){ const o = el("option",null,l); o.value = v; s.append(o); }
