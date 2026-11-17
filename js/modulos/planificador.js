@@ -171,6 +171,7 @@ function renderHome(app){
     a.append(t); g.append(a);
   }
   app.append(g);
+  buscarArticulo(app);
 }
 const PARAMS=[["plazo","Pedido a puerto","sem"],["transito","Tránsito","sem"],["despacho","Despacho","sem"],["cobertura","Cobertura por pedido","sem"]];
 function renderSupHeader(app,r){
@@ -216,15 +217,7 @@ function renderArticles(app,sid){
   for(const [v,t] of [["--arrive-soft","Entrada con pedido confirmado"],["--steel-soft","Otra entrada (devolución, otro proveedor…)"],["--pend-soft","Entrada pendiente de confirmar pedido"],["--mod-soft","Modificación pendiente de validar por el proveedor"],["--promo-soft","Venta modificada a mano"],["--amber-soft","Bajo stock de seguridad"],["--red-soft","Rotura"]]){const s=el("span"); const i=el("i"); i.style.background=`var(${v})`; s.append(i,t); lg.append(s);}
   app.append(lg);
   const wrap=el("div","gridwrap"), t=el("table","grid");
-  const th=el("thead"), hr=el("tr"); hr.append(el("th","lab","Semana"));
-  const pendByWeek=new Map(); for(const o of ordersOf(sid)) if(isPend(o)&&Object.keys(o.lines||{}).length) pendByWeek.set(key(od(o,sid).entryW),o);
-  const confByWeek=new Map(); for(const o of ordersOf(sid)) if(!isPend(o)){const k=key(od(o,sid).entryW); if(!confByWeek.has(k)) confByWeek.set(k,[]); confByWeek.get(k).push(o);}
-  W.forEach((d,i)=>{const h=el("th",i===0?"now":""); h.append(wLabel(d)); h.append(el("small",null,dShort(d)));
-    for(const o of (confByWeek.get(key(d))||[])){const dd=od(o,sid); const tg=el("a","otag"+(o.mod?" m":(o.comentarios?" c":"")),o.ref); tg.href=`#${sid}-pedidos`; tg.setAttribute("aria-label",`Pedido ${o.ref}`);
-      const tip=el("span","tip"); tip.append(el("b",null,o.ref+"\n"), `CRD: ${o.crd?dLong(parseKey(o.crd)):"sin fecha"}\nETD: ${o.etd?dLong(parseKey(o.etd)):"sin fecha (estimada "+dLong(dd.etd)+")"}\nETA: ${dLong(dd.eta)}\nTamaño: ${sizeLabel(o.tamano)||"sin indicar"}\nNaviera: ${o.naviera||"sin indicar"}\nImporte: ${fmtE2(total(o))}${o.mod?"\nModificación pendiente de validar":""}${o.comentarios?"\n\nComentarios: "+o.comentarios:""}`);
-      tg.append(tip); tg.addEventListener("click",()=>{state.expanded.add(o._id); state.ordFilter={sid,peds:[o._id],refs:[]}; state.dd=null;}); h.append(tg);}
-    const po=pendByWeek.get(key(d)); if(po&&state.canWrite){const b=el("button","asg","Crear pedido"); b.title="Crear un pedido con todas las entradas pendientes de esta semana"; b.addEventListener("click",()=>openAsg(sid,po)); h.append(b);} hr.append(h);});
-  th.append(hr); t.append(th);
+  t.append(gridHead(sid,W));
   const vis=visibleProducts(sid);
   let sep=false;
   for(const {p,r} of vis){
@@ -233,6 +226,18 @@ function renderArticles(app,sid){
   }
   if(!vis.length){const b=el("tbody"),tr=el("tr"),td=el("td","empty"); td.colSpan=W.length+1; td.style.textAlign="left"; td.textContent=prodsOf(sid).length?"Ningún artículo coincide con el filtro.":"Este proveedor aún no tiene artículos en el planificador. Añádelos con «Nuevo artículo»."; tr.append(td); b.append(tr); t.append(b);}
   wrap.append(t); app.append(wrap);
+}
+// Cabecera de semanas con las etiquetas de pedido y «Crear pedido»
+function gridHead(sid,W){
+  const th=el("thead"), hr=el("tr"); hr.append(el("th","lab","Semana"));
+  const pendByWeek=new Map(); for(const o of ordersOf(sid)) if(isPend(o)&&Object.keys(o.lines||{}).length) pendByWeek.set(key(od(o,sid).entryW),o);
+  const confByWeek=new Map(); for(const o of ordersOf(sid)) if(!isPend(o)){const k=key(od(o,sid).entryW); if(!confByWeek.has(k)) confByWeek.set(k,[]); confByWeek.get(k).push(o);}
+  W.forEach((d,i)=>{const h=el("th",i===0?"now":""); h.append(wLabel(d)); h.append(el("small",null,dShort(d)));
+    for(const o of (confByWeek.get(key(d))||[])){const dd=od(o,sid); const tg=el("a","otag"+(o.mod?" m":(o.comentarios?" c":"")),o.ref); tg.href=`#${sid}-pedidos`; tg.setAttribute("aria-label",`Pedido ${o.ref}`);
+      const tip=el("span","tip"); tip.append(el("b",null,o.ref+"\n"), `CRD: ${o.crd?dLong(parseKey(o.crd)):"sin fecha"}\nETD: ${o.etd?dLong(parseKey(o.etd)):"sin fecha (estimada "+dLong(dd.etd)+")"}\nETA: ${dLong(dd.eta)}\nTamaño: ${sizeLabel(o.tamano)||"sin indicar"}\nNaviera: ${o.naviera||"sin indicar"}\nImporte: ${fmtE2(total(o))}${o.mod?"\nModificación pendiente de validar":""}${o.comentarios?"\n\nComentarios: "+o.comentarios:""}`);
+      tg.append(tip); tg.addEventListener("click",()=>{state.expanded.add(o._id); state.ordFilter={sid,peds:[o._id],refs:[]}; state.dd=null;}); h.append(tg);}
+    const po=pendByWeek.get(key(d)); if(po&&state.canWrite){const b=el("button","asg","Crear pedido"); b.title="Crear un pedido con todas las entradas pendientes de esta semana"; b.addEventListener("click",()=>openAsg(sid,po)); h.append(b);} hr.append(h);});
+  th.append(hr); return th;
 }
 function rowsFor(c){return [["dem","Venta prevista"],["entry","Entrada en almacén",null,`ETA + ${c.despacho} sem`],["man","Otras entradas",null,"devoluciones, otros proveedores"],["ped","Pedido a lanzar","x"],["carga","Carga en China (ETD)","x"],["real","Stock disponible"],["res","Reservas pendientes"],["over","Stock disponible − Stock seguridad"]];}
 function productBody(p,r,W,sid,c){
@@ -818,6 +823,47 @@ $("#fFp").addEventListener("submit",async ev=>{
   state.formas.push({ id:r.data.id, nombre:r.data.nombre || nombre, tramos:(r.data.tramos || tr).map(t => ({ pct:+t.pct, ref:t.ref, dias:+t.dias || 0 })), orden:r.data.orden }); $("#dlgFp").close(); toast(`Forma de pago creada: ${nombre}`);
   if(fpCtx&&fpCtx.onDone) fpCtx.onDone(r.data.id); else render();
 });
+
+/* ===== Búsqueda por artículo (en todos los proveedores) ===== */
+const BA = { q:"", sel:new Set() };
+const norm = x => (x||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+function buscarArticulo(app){
+  const box=el("section","busart pad");
+  box.append(el("h2","sec","Búsqueda por artículo"));
+  box.append(el("p","secsub","Busca por código o descripción en todos los proveedores y revisa la previsión del artículo sin entrar en su proveedor."));
+  const bar=el("div","toolbar"); bar.style.padding="6px 0 10px";
+  const q=el("input","search"); q.type="search"; q.placeholder="Código o descripción (por ejemplo: vela 1700, P-COM-BAN-004)"; q.value=BA.q; q.dataset.k="busart"; q.setAttribute("aria-label","Buscar artículo por código o descripción");
+  q.addEventListener("input",()=>{BA.q=q.value; BA.sel.clear(); render();});
+  bar.append(q);
+  if(BA.q){const cl=el("button","btn small","Limpiar"); cl.addEventListener("click",()=>{BA.q=""; BA.sel.clear(); render();}); bar.append(cl);}
+  box.append(bar);
+  const words=norm(BA.q).split(/\s+/).filter(Boolean);
+  if(!words.length){ app.append(box); return; }
+  const hits=state.products.filter(p=>{const t=norm(`${p.codigo_ax||""} ${p.clave||""} ${p.name||""} ${p.model||""} ${(sup(p.supplier)||{}).name||""}`); return words.every(w=>t.includes(w));})
+    .sort((a,b)=>(!!a.extinguir-!!b.extinguir)||(a.name||"").localeCompare(b.name||""));
+  if(!hits.length){ box.append(el("div","card empty","Ningún artículo coincide con la búsqueda.")); app.append(box); return; }
+  const lista=el("div","balist");
+  const auto=hits.length<=3;
+  for(const p of hits.slice(0,40)){
+    const on=auto||BA.sel.has(p._id); const b=el("button","bahit"+(on?" on":"")+(p.extinguir?" ext":"")); b.type="button";
+    b.append(el("span","code",dispCode(p)+(p.clave&&p.codigo_ax&&p.clave!==p.codigo_ax?` · ${p.clave.slice(p.codigo_ax.length)}`:"")), el("b",null,p.name), el("span","sup",(sup(p.supplier)||{}).name||""));
+    if(!auto) b.addEventListener("click",()=>{BA.sel.has(p._id)?BA.sel.delete(p._id):BA.sel.add(p._id); render();});
+    lista.append(b);
+  }
+  box.append(lista);
+  if(hits.length>40) box.append(el("p","hint",`Hay ${hits.length} artículos: se muestran los 40 primeros. Afina la búsqueda.`));
+  if(!auto&&!BA.sel.size) box.append(el("p","hint","Pulsa uno o varios artículos para ver su previsión."));
+  const ver=auto?hits:hits.filter(p=>BA.sel.has(p._id));
+  for(const p of ver){
+    const sid=p.supplier, s=sup(sid), c=cfg(sid), W=weeks(sid);
+    const hd=el("div","bahead"); const a=el("a",null,`${s?s.name:""} ›`); a.href=`#${sid}`; a.title="Abrir la revisión de artículos de este proveedor"; hd.append(a, el("span",null,`Pedido a puerto ${c.plazo} sem · tránsito ${c.transito} sem · ${formaCorta(formaSup(sid))}`));
+    box.append(hd);
+    const prevMon=CUR.mon; CUR.mon=c.moneda||"EUR";   // importes en la moneda de su proveedor
+    const wrap=el("div","gridwrap bagrid"), t=el("table","grid"); t.append(gridHead(sid,W)); t.append(productBody(p,calc(p,sid),W,sid,c)); wrap.append(t); box.append(wrap);
+    CUR.mon=prevMon;
+  }
+  app.append(box);
+}
 
 /* ===== Resumen por proveedor: stock de seguridad y stock previsto ===== */
 const RS = { abiertos:new Set(), semanas:12, medida:"uds", tipo:"disp" };

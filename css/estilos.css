@@ -615,3 +615,19 @@ td small.tramo{display:block;color:var(--ink-3);font-size:12px}
 .pendcard .comments{margin:10px 0 0}
 /* Evolución del stock: semana con algún artículo en rotura (el total no baja de cero) */
 .rtbl tr.rsup td.rot span{color:var(--red);box-shadow:inset 0 -2px 0 var(--red)}
+
+/* ---- Proveedores: búsqueda por artículo ---- */
+.busart{margin-top:28px;padding-bottom:30px}
+.busart .search{min-width:min(460px,100%);height:38px;border:1px solid var(--line-strong);border-radius:6px;padding:0 12px;background:var(--surface);font:inherit}
+.balist{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+.bahit{display:grid;gap:1px;text-align:left;border:1px solid var(--line);border-radius:8px;background:var(--surface);padding:7px 12px;cursor:pointer;font:inherit;min-width:200px;max-width:320px}
+.bahit:hover{border-color:var(--line-strong)}
+.bahit.on{border-color:var(--steel);box-shadow:inset 0 0 0 1px var(--steel)}
+.bahit .code{font-family:"Barlow Semi Condensed",sans-serif;font-size:12px;color:var(--ink-3)}
+.bahit b{font-size:14px;font-weight:600}
+.bahit .sup{font-size:12.5px;color:var(--ink-2)}
+.bahit.ext b{color:var(--ink-3);text-decoration:line-through dashed}
+.bahead{display:flex;gap:14px;align-items:baseline;margin:16px 0 6px;font-size:13.5px;color:var(--ink-2)}
+.bahead a{font-weight:700;font-size:15px;color:var(--ink);text-decoration:none}
+.bahead a:hover{text-decoration:underline}
+.bagrid{max-height:none}
