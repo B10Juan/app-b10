@@ -631,3 +631,19 @@ td small.tramo{display:block;color:var(--ink-3);font-size:12px}
 .bahead a{font-weight:700;font-size:15px;color:var(--ink);text-decoration:none}
 .bahead a:hover{text-decoration:underline}
 .bagrid{max-height:none}
+
+/* Vacaciones: calendario anual */
+.vac-cal{display:grid;grid-template-columns:repeat(auto-fill,minmax(178px,1fr));gap:12px}
+.vac-mes b{display:block;font-size:13px;margin-bottom:3px}
+.vac-dias{display:grid;grid-template-columns:repeat(7,1fr);gap:2px}
+.vac-h{font-size:10.5px;color:var(--ink-3);text-align:center}
+.vac-d{font:inherit;font-size:12px;line-height:1;padding:4px 0;text-align:center;border:0;border-radius:4px;background:transparent;color:var(--ink)}
+button.vac-d{cursor:pointer}
+button.vac-d:hover{outline:1px solid var(--line-strong)}
+.vac-d.nolab{color:var(--ink-3)}
+.vac-d.fest{background:#F8DEDB;color:#B42318}
+.vac-d.vac{background:#4E9A8F;color:#fff}
+.vac-d.hoy{box-shadow:inset 0 0 0 1.5px var(--ink)}
+.vac-ley{display:flex;gap:16px;margin-top:8px;font-size:12.5px;color:var(--ink-2)}
+.vac-ley span{display:flex;align-items:center;gap:6px}
+.vac-ley i.vac-d{display:inline-block;width:16px;height:14px;padding:0}
