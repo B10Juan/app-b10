@@ -121,14 +121,14 @@ export function renderDatos(app){
   if (!R.data){ if (!R.loading) cargar(); box.append(el("div","card empty","Cargando datos…")); return; }
   const nav = el("nav","tabs"); nav.style.marginBottom = "12px";
   const inc = R.data.personas.filter(p => activa(p) && pendientes(p).length).length;
-  for (const [k,t] of [["personas", "Personas" + (inc ? ` (${inc} incompletas)` : "")],["estructura","Estructura de departamentos"]]){
+  for (const [k,t] of [["personas", "Personas" + (inc ? ` (${inc} incompletas)` : "")],["estructura","Estructura de departamentos"],["plantilla","Número de personas por dpto."]]){
     const a = el("a",null,t); a.href = "#datos"; if (R.tabD === k) a.setAttribute("aria-current","page"); a.addEventListener("click", e => { e.preventDefault(); R.tabD = k; render(); }); nav.append(a); }
   const acc = el("span"); acc.style.cssText = "margin-left:auto;display:flex;gap:8px";
-  const exv = el("button","btn small","Exportar vista a Excel"); exv.addEventListener("click", () => exportarVista(box, R.tabD === "estructura" ? "Estructura departamentos" : "Personas")); acc.append(exv);
+  const exv = el("button","btn small","Exportar vista a Excel"); exv.addEventListener("click", () => exportarVista(box, R.tabD === "estructura" ? "Estructura departamentos" : R.tabD === "plantilla" ? "Personas por departamento" : "Personas")); acc.append(exv);
   if (nivel("rrhh")){ const cl = el("a","btn small","Costes de personal ›"); cl.href = "#personas-costes"; acc.append(cl); }
   nav.append(acc);
   box.append(nav);
-  if (R.tabD === "estructura") tabEstructura(box); else tabPersonas(box);
+  if (R.tabD === "estructura") tabEstructura(box); else if (R.tabD === "plantilla") tabPlantilla(box); else tabPersonas(box);
 }
 
 // ---------- Resumen ----------
@@ -400,9 +400,9 @@ async function ficha(p){
   const cods = f.querySelectorAll('[data-f="codigo"] input'); I.codigo = cods[1]; cods[0].addEventListener("input", () => { I.codigo.value = cods[0].value; }); I.codigo.addEventListener("input", () => { cods[0].value = I.codigo.value; }); cods[0].value = I.codigo.value; cods[0].disabled = !ed; I.codigo.disabled = !ed; if (!nueva && ed) for (const c of cods) c.parentElement.querySelector(".hint").textContent = "Si lo corriges, se cambia también en sus nóminas.";
   I.tipo_vinculo.addEventListener("change", syncV); syncV(); if (!nueva) I.tipo_vinculo.disabled = true;
   I.departamento.addEventListener("change", async () => { if (I.departamento.value !== "__nuevo") return; const n = (prompt("Nombre del nuevo departamento o sección:") || "").trim(); if (!n){ I.departamento.value = v.departamento || ""; return; }
-    const area = (prompt("Área (Producción, Logística, Oficina, Comercial, Dirección…):", "Producción") || "").trim() || null;
-    const r = await sch().from("departamentos").insert({ nombre:n, area, orden:900 }); if (r.error && r.error.code !== "23505"){ toast("No se ha podido crear el departamento"); return; }
-    D.deps.push({ nombre:n, area, orden:900, activo:true }); const o = new Option(n, n); I.departamento.insertBefore(o, I.departamento.lastChild); I.departamento.value = n; });
+    const clas = I.clasificacion.value || null;
+    const r = await sch().from("departamentos").insert({ nombre:n, clasificacion:clas, orden:900 }); if (r.error && r.error.code !== "23505"){ toast("No se ha podido crear el departamento"); return; }
+    D.deps.push({ nombre:n, clasificacion:clas, orden:900, activo:true }); const o = new Option(n, n); I.departamento.insertBefore(o, I.departamento.lastChild); I.departamento.value = n; });
 
   // periodos ETT y movimientos
   if (!nueva){
@@ -624,46 +624,47 @@ function tabEstructura(box){
   const D = R.data, ed = puede();
   const activos = D.personas.filter(activa);
   const nPu = id => activos.filter(p => p.puesto_id === id).length;
-  box.append(el("p","hint","Cada puesto pertenece a un departamento y tiene su clasificación (M.O.E, M.O.I o M.O.D). Al asignar un puesto a una persona, su ficha toma el departamento y la clasificación del puesto."));
+  const clasDep = d => d.clasificacion || null;
+  box.append(el("p","hint","La estructura tiene tres niveles: clasificación (M.O.E, M.O.I o M.O.D) › departamento › puesto. Cada departamento pertenece a una clasificación y cada puesto a un departamento (y toma su clasificación). Al asignar un puesto a una persona, su ficha toma el departamento y la clasificación."));
   if (ed){
-    const c = el("div","ctrl");
     const fld = (lab, node) => { const d = el("div","fld"); d.append(el("span",null,lab), node); return d; };
-    const dn = el("input"); dn.placeholder = "Nombre del departamento"; const da = el("input"); da.placeholder = "Área (opcional)"; da.style.width = "140px";
+    const selClas = () => { const s = el("select"); s.append(new Option("Clasificación…","")); for (const k of ["M.O.E","M.O.I","M.O.D"]) s.append(new Option(CLAS_LAB[k], k)); return s; };
+    const c = el("div","ctrl"); c.append(el("b",null,"1 · Nuevo departamento"));
+    const dc = selClas(), dn = el("input"); dn.placeholder = "Nombre del departamento";
     const db = el("button","btn","Crear departamento"); db.type = "button";
-    db.addEventListener("click", async () => { const n = dn.value.trim(); if (!n){ dn.focus(); return; } const r = await sch().from("departamentos").insert({ nombre:n, area:da.value.trim() || null, orden:900 }); if (r.error){ toast(r.error.code === "23505" ? "Ese departamento ya existe" : "No se ha podido crear"); return; } toast("Departamento creado"); recargar(); });
-    c.append(fld("Nuevo departamento", dn), fld("Área", da), db); box.append(c);
-    const c2 = el("div","ctrl");
-    const pn = el("input"); pn.placeholder = "Nombre del puesto";
-    const pd = el("select"); pd.append(new Option("Departamento…","")); for (const d of D.deps) pd.append(new Option(d.nombre, d.nombre));
-    const pc = el("select"); pc.append(new Option("Clasificación…","")); for (const k of ["M.O.E","M.O.I","M.O.D"]) pc.append(new Option(CLAS_LAB[k], k));
+    db.addEventListener("click", async () => { if (!dc.value) return dc.focus(); const n = dn.value.trim(); if (!n){ dn.focus(); return; } const r = await sch().from("departamentos").insert({ nombre:n, clasificacion:dc.value, orden:900 }); if (r.error){ toast(r.error.code === "23505" ? "Ese departamento ya existe" : "No se ha podido crear"); return; } toast("Departamento creado"); recargar(); });
+    c.append(fld("Clasificación", dc), fld("Nombre del departamento", dn), db); box.append(c);
+    const c2 = el("div","ctrl"); c2.append(el("b",null,"2 · Nuevo puesto"));
+    const pd = selectDepartamento(""), pn = el("input"); pn.placeholder = "Nombre del puesto"; const pc = el("span","hint","");
+    pd.addEventListener("change", () => { const d = D.deps.find(x => x.nombre === pd.value); pc.textContent = d ? (d.clasificacion ? `Clasificación: ${d.clasificacion}` : "Este departamento no tiene clasificación: ponla con «Editar» en el árbol") : ""; });
     const pb = el("button","btn primary","Crear puesto"); pb.type = "button";
-    pb.addEventListener("click", async () => { if (!pn.value.trim()) return pn.focus(); if (!pd.value) return pd.focus(); if (!pc.value) return pc.focus();
-      const r = await sch().from("puestos").insert({ nombre:pn.value.trim(), departamento:pd.value, clasificacion:pc.value }); if (r.error){ toast(r.error.code === "23505" ? "Ese puesto ya existe en el departamento" : "No se ha podido crear"); return; } toast("Puesto creado"); recargar(); });
-    c2.append(fld("Nuevo puesto", pn), fld("Depende de", pd), fld("Clasificación", pc), pb); box.append(c2);
+    pb.addEventListener("click", async () => { if (!pd.value) return pd.focus(); if (!pn.value.trim()) return pn.focus(); const d = D.deps.find(x => x.nombre === pd.value);
+      if (!d || !d.clasificacion){ toast("Pon antes la clasificación del departamento (botón «Editar» del departamento)"); return; }
+      const r = await sch().from("puestos").insert({ nombre:pn.value.trim(), departamento:pd.value, clasificacion:d.clasificacion }); if (r.error){ toast(r.error.code === "23505" ? "Ese puesto ya existe en el departamento" : "No se ha podido crear"); return; } toast("Puesto creado"); recargar(); });
+    c2.append(fld("Departamento", pd), fld("Nombre del puesto", pn), pb, pc); box.append(c2);
   }
-  // árbol
+  // árbol clasificación › departamento › puesto
   const tw = el("div","tblwrap"); const t = el("table","tbl"); const hr = el("tr"); for (const h of ["Clasificación › departamento › puesto","Personas activas",""]) hr.append(el("th", h === "Personas activas" ? "n" : null, h)); t.append(el("thead")); t.tHead.append(hr);
   const tb = el("tbody");
   const btn = (txt, fn) => { const b = el("button","btn small",txt); b.type = "button"; b.addEventListener("click", e => { e.stopPropagation(); fn(); }); return b; };
-  for (const k of ["M.O.E","M.O.I","M.O.D"]){
-    const P = D.puestos.filter(x => x.clasificacion === k); const tr = el("tr","wk"); tr.append(el("td",null,CLAS_LAB[k]), el("td","n",String(sum(P, x => nPu(x.id)))), el("td")); tb.append(tr);
-    for (const dep of [...new Set(P.map(x => x.departamento))].sort()){
-      const Pd = P.filter(x => x.departamento === dep); const tr2 = el("tr"); const td = el("td",null,dep); td.style.paddingLeft = "28px"; td.style.fontWeight = "600";
-      const ac = el("td"); if (ed) ac.append(btn("Renombrar", async () => { const n = (prompt("Nuevo nombre del departamento:", dep) || "").trim(); if (!n || n === dep) return; const r = await sch().from("departamentos").update({ nombre:n }).eq("nombre", dep); if (r.error){ toast("No se ha podido renombrar"); return; } toast("Departamento renombrado"); recargar(); }));
-      tr2.append(td, el("td","n",String(sum(Pd, x => nPu(x.id)))), ac); tb.append(tr2);
+  const grupos = [...["M.O.E","M.O.I","M.O.D"].map(k => [k, CLAS_LAB[k]]), [null, "Departamentos sin clasificación"]];
+  for (const [k, lab] of grupos){
+    const deps = D.deps.filter(d => clasDep(d) === k).sort((a,b) => a.nombre.localeCompare(b.nombre, "es")); if (!deps.length && !k) continue;
+    const tot = sum(deps, d => activos.filter(p => p.departamento === d.nombre).length);
+    const tr = el("tr","wk"); tr.append(el("td",null,lab), el("td","n",String(tot)), el("td")); tb.append(tr);
+    for (const d of deps){
+      const Pd = D.puestos.filter(x => x.departamento === d.nombre); const nDep = activos.filter(p => p.departamento === d.nombre).length, sinPu = activos.filter(p => p.departamento === d.nombre && !p.puesto_id).length;
+      const tr2 = el("tr"); const td = el("td",null,d.nombre); td.style.paddingLeft = "28px"; td.style.fontWeight = "600";
+      const ac = el("td"); if (ed){ ac.append(btn("Editar", () => editarDepartamento(d)), " "); if (!Pd.length && !D.personas.some(p => p.departamento === d.nombre)) ac.append(btn("Eliminar", async () => { if (!confirm(`¿Eliminar el departamento «${d.nombre}»?`)) return; const r = await sch().from("departamentos").delete().eq("nombre", d.nombre); if (r.error){ toast("No se ha podido eliminar"); return; } recargar(); })); }
+      tr2.append(td, el("td","n",String(nDep) + (sinPu ? ` (${sinPu} sin puesto)` : "")), ac); tb.append(tr2);
+      if (!Pd.length){ const tr3 = el("tr"); const x = el("td",null,"Sin puestos: créalos arriba en «2 · Nuevo puesto»"); x.style.cssText = "padding-left:52px;color:var(--ink-3)"; tr3.append(x, el("td"), el("td")); tb.append(tr3); }
       for (const pu of Pd.sort((a,b) => a.nombre < b.nombre ? -1 : 1)){
-        const tr3 = el("tr"); const td3 = el("td",null,pu.nombre + (pu.activo ? "" : " (inactivo)")); td3.style.paddingLeft = "52px";
+        const tr3 = el("tr"); const td3 = el("td",null,pu.nombre + (pu.activo ? "" : " (inactivo)") + (k && pu.clasificacion !== k ? ` · figura como ${pu.clasificacion}` : "")); td3.style.paddingLeft = "52px"; if (k && pu.clasificacion !== k) td3.style.color = "var(--red)";
         const ac3 = el("td"); if (ed){ ac3.append(btn("Editar", () => editarPuesto(pu)), " "); if (!D.personas.some(p => p.puesto_id === pu.id)) ac3.append(btn("Eliminar", async () => { if (!confirm(`¿Eliminar el puesto «${pu.nombre}»?`)) return; const r = await sch().from("puestos").delete().eq("id", pu.id); if (r.error){ toast("No se ha podido eliminar"); return; } recargar(); })); }
         tr3.append(td3, el("td","n",String(nPu(pu.id))), ac3); tb.append(tr3);
       }
     }
   }
-  const sinPu = D.deps.filter(d => !D.puestos.some(x => x.departamento === d.nombre));
-  if (sinPu.length){ const tr = el("tr","wk"); tr.append(el("td",null,"Departamentos sin puestos"), el("td"), el("td")); tb.append(tr);
-    for (const d of sinPu){ const tr2 = el("tr"); const td = el("td",null,d.nombre + (d.area ? ` · ${d.area}` : "")); td.style.paddingLeft = "28px"; const n = activos.filter(p => p.departamento === d.nombre).length;
-      const ac = el("td"); if (ed){ ac.append(btn("Renombrar", async () => { const nn = (prompt("Nuevo nombre del departamento:", d.nombre) || "").trim(); if (!nn || nn === d.nombre) return; const r = await sch().from("departamentos").update({ nombre:nn }).eq("nombre", d.nombre); if (r.error){ toast("No se ha podido renombrar"); return; } recargar(); }), " ");
-        if (!D.personas.some(p => p.departamento === d.nombre)) ac.append(btn("Eliminar", async () => { if (!confirm(`¿Eliminar el departamento «${d.nombre}»?`)) return; const r = await sch().from("departamentos").delete().eq("nombre", d.nombre); if (r.error){ toast("No se ha podido eliminar"); return; } recargar(); })); }
-      tr2.append(td, el("td","n", n ? `${n} sin puesto` : "0"), ac); tb.append(tr2); } }
   t.append(tb); tw.append(t); box.append(tw);
   // asignación rápida de puestos
   const sin = activos.filter(p => !p.puesto_id);
@@ -683,18 +684,73 @@ function selectPuesto(val){
     for (const pu of D.puestos.filter(x => x.clasificacion === k && x.departamento === dep && (x.activo || x.id === val))) og.append(new Option(pu.nombre, pu.id)); s.append(og); }
   s.value = val ? String(val) : ""; return s;
 }
+// ---------- Número de personas por departamento ----------
+// Plantilla actual (sin baja definitiva). «Activas»: trabajando hoy (o de vacaciones). «Bajas»: de baja hoy por IT, excedencia, permiso u otra ausencia.
+function tabPlantilla(box){
+  const D = R.data, F = R.fp || (R.fp = { vinculo:"", trab:true });
+  const c = el("div","ctrl");
+  const s = el("div","seg"); for (const [k,l] of [["","Todos"],["Nómina","Nómina"],["ETT","ETT"]]){ const b = el("button",null,l); b.type = "button"; b.setAttribute("aria-pressed", String(F.vinculo === k)); b.addEventListener("click", () => { F.vinculo = k; render(); }); s.append(b); }
+  const d = el("div","fld"); d.append(el("span",null,"Vínculo"), s); c.append(d);
+  const lb = el("label","chk"); const cb = el("input"); cb.type = "checkbox"; cb.checked = F.trab; cb.addEventListener("change", () => { F.trab = cb.checked; render(); }); lb.append(cb, " Mostrar trabajadores"); c.append(lb); box.append(c);
+  const L = D.personas.filter(p => activa(p) && (!F.vinculo || p.tipo_vinculo === F.vinculo));
+  const deBaja = p => { const st = situacion(p); return st.a && st.a.tipo !== "Vacaciones" ? st : null; };
+  const cuenta = P => { const b = P.filter(deBaja).length; return [P.length, P.length - b, b]; };
+  const tw = el("div","tblwrap"); const t = el("table","tbl"); const hr = el("tr"); for (const [h, n] of [["Clasificación",0],["Departamento",0],["Puesto",0],["Trabajador",0],["Total personas",1],["Activas",1],["Bajas",1]]) hr.append(el("th", n ? "n" : null, h)); t.append(el("thead")); t.tHead.append(hr);
+  const tb = el("tbody");
+  const fila = (cls, cols, nums, estilo) => { const tr = el("tr", cls); for (const x of cols) tr.append(el("td",null,x)); nums.forEach((v, i) => { const x = el("td","n", v === "" ? "" : String(v)); if (i === 2 && v) x.style.color = "var(--red)"; tr.append(x); }); if (estilo) tr.style.cssText = estilo; tb.append(tr); return tr; };
+  const ords = ["M.O.E","M.O.I","M.O.D"]; const clases = [...ords.filter(k => L.some(p => p.clasificacion === k)), ...(L.some(p => !ords.includes(p.clasificacion)) ? [null] : [])];
+  for (const k of clases){
+    const Pk = L.filter(p => k ? p.clasificacion === k : !ords.includes(p.clasificacion));
+    fila("wk", [k || "Sin clasificar", "", "", ""], cuenta(Pk));
+    for (const dep of [...new Set(Pk.map(p => p.departamento || ""))].sort((a,b) => !a ? 1 : !b ? -1 : a.localeCompare(b, "es"))){
+      const Pd = Pk.filter(p => (p.departamento || "") === dep);
+      fila(null, ["", dep || "Sin departamento", "", ""], cuenta(Pd), "font-weight:700;background:var(--surface-2)");
+      for (const pu of [...new Set(Pd.map(p => p.puesto || ""))].sort((a,b) => !a ? 1 : !b ? -1 : a.localeCompare(b, "es"))){
+        const Pp = Pd.filter(p => (p.puesto || "") === pu);
+        fila(null, ["", "", pu || "Sin puesto", ""], cuenta(Pp), "font-weight:600");
+        if (F.trab) for (const p of Pp.sort((a,b) => a.nombre.localeCompare(b.nombre, "es"))){ const b = deBaja(p);
+          const tr = fila(null, ["", "", "", p.nombre + (b ? ` (${b.t})` : "") + (p.tipo_vinculo === "ETT" ? " · ETT" : "")], [1, b ? 0 : 1, b ? 1 : 0]); tr.style.cursor = "pointer"; tr.title = "Abrir la ficha"; tr.addEventListener("click", () => ficha(p)); }
+      }
+    }
+  }
+  if (!L.length){ const tr = el("tr"); const x = el("td","empty","No hay personas."); x.colSpan = 7; tr.append(x); tb.append(tr); }
+  else fila("wk", ["Total", "", "", ""], cuenta(L));
+  t.append(tb); tw.append(t); box.append(tw);
+  box.append(el("p","hint","Personas en plantilla hoy (sin las que tienen baja definitiva). «Activas»: trabajando hoy (también si están de vacaciones). «Bajas»: de baja hoy por IT, excedencia, permiso u otra ausencia registrada en su ficha. Pulsa un trabajador para abrir su ficha."));
+}
+
+// Desplegable de departamentos agrupados por clasificación
+function selectDepartamento(val){
+  const s = el("select"); s.append(new Option("Departamento…","")); const D = R.data;
+  for (const [k, lab] of [["M.O.E",CLAS_LAB["M.O.E"]],["M.O.I",CLAS_LAB["M.O.I"]],["M.O.D",CLAS_LAB["M.O.D"]],[null,"Sin clasificación"]]){
+    const ds = D.deps.filter(d => (d.clasificacion || null) === k).sort((a,b) => a.nombre.localeCompare(b.nombre, "es")); if (!ds.length) continue;
+    const og = document.createElement("optgroup"); og.label = lab; for (const d of ds) og.append(new Option(d.nombre, d.nombre)); s.append(og); }
+  s.value = val || ""; return s;
+}
+function editarDepartamento(dep){
+  let dlg = document.getElementById("dlgDep"); if (dlg) dlg.remove();
+  dlg = el("dialog"); dlg.id = "dlgDep"; document.body.append(dlg); const f = el("form"); f.method = "dialog"; dlg.append(f);
+  f.append(el("h2",null,"Departamento"));
+  const n = el("input"); n.value = dep.nombre; const c = el("select"); c.append(new Option("—","")); for (const k of ["M.O.E","M.O.I","M.O.D"]) c.append(new Option(CLAS_LAB[k], k)); c.value = dep.clasificacion || "";
+  const fld = (lab, node) => { const x = el("div","f"); x.append(el("label",null,lab), node); return x; };
+  f.append(fld("Nombre", n), fld("Clasificación", c), el("p","hint","Si cambias la clasificación, sus puestos y las personas de esos puestos pasan a la nueva clasificación."));
+  const acts = el("div","actions"); const cn = el("button","btn","Cancelar"); cn.type = "button"; cn.addEventListener("click", () => dlg.close()); const ok = el("button","btn primary","Guardar"); acts.append(cn, ok); f.append(acts);
+  f.addEventListener("submit", async e => { e.preventDefault(); const nn = n.value.trim(); if (!nn) return n.focus();
+    const r = await sch().from("departamentos").update({ nombre:nn, clasificacion:c.value || null }).eq("nombre", dep.nombre);
+    if (r.error){ toast(r.error.code === "23505" ? "Ya existe un departamento con ese nombre" : "No se ha podido guardar"); return; } dlg.close(); toast("Departamento guardado"); recargar(); });
+  dlg.showModal();
+}
 function editarPuesto(pu){
   let dlg = document.getElementById("dlgPuesto"); if (dlg) dlg.remove();
   dlg = el("dialog"); dlg.id = "dlgPuesto"; document.body.append(dlg); const f = el("form"); f.method = "dialog"; dlg.append(f);
   f.append(el("h2",null,"Puesto"));
-  const n = el("input"); n.value = pu.nombre; const d = el("select"); for (const x of R.data.deps) d.append(new Option(x.nombre, x.nombre)); d.value = pu.departamento;
-  const c = el("select"); for (const k of ["M.O.E","M.O.I","M.O.D"]) c.append(new Option(CLAS_LAB[k], k)); c.value = pu.clasificacion;
+  const n = el("input"); n.value = pu.nombre; const d = selectDepartamento(pu.departamento);
   const a = el("input"); a.type = "checkbox"; a.checked = pu.activo;
   const fld = (lab, node) => { const x = el("div","f"); x.append(el("label",null,lab), node); return x; };
   const la = el("label","chk"); la.append(a, " Activo (se puede asignar)");
-  f.append(fld("Nombre", n), fld("Departamento", d), fld("Clasificación", c), la, el("p","hint","Los cambios se aplican a todas las personas de este puesto."));
+  f.append(fld("Nombre", n), fld("Departamento", d), la, el("p","hint","El puesto toma la clasificación de su departamento. Los cambios se aplican a todas las personas de este puesto."));
   const acts = el("div","actions"); const cn = el("button","btn","Cancelar"); cn.type = "button"; cn.addEventListener("click", () => dlg.close()); const ok = el("button","btn primary","Guardar"); acts.append(cn, ok); f.append(acts);
-  f.addEventListener("submit", async e => { e.preventDefault(); const r = await sch().from("puestos").update({ nombre:n.value.trim(), departamento:d.value, clasificacion:c.value, activo:a.checked }).eq("id", pu.id);
+  f.addEventListener("submit", async e => { e.preventDefault(); const dd = R.data.deps.find(x => x.nombre === d.value); const r = await sch().from("puestos").update({ nombre:n.value.trim(), departamento:d.value, clasificacion:(dd && dd.clasificacion) || pu.clasificacion, activo:a.checked }).eq("id", pu.id);
     if (r.error){ toast("No se ha podido guardar"); return; } dlg.close(); toast("Puesto guardado"); recargar(); });
   dlg.showModal();
 }
