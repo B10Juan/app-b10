@@ -66,7 +66,7 @@ export function exportarVista(box, nombre){
   const wb = XLSX.utils.book_new(), usados = new Set();
   tablas.forEach((t, i) => {
     const filas = [];
-    for (const tr of t.rows){ if (tr.offsetParent === null) continue; const f = []; for (const c of tr.cells){ f.push(valor(c)); for (let k = 1; k < (c.colSpan || 1); k++) f.push(""); } if (f.some(v => v !== "")) filas.push(f); }
+    for (const tr of t.rows){ if (tr.offsetParent === null || tr.classList.contains("filtros")) continue; const f = []; for (const c of tr.cells){ f.push(valor(c)); for (let k = 1; k < (c.colSpan || 1); k++) f.push(""); } if (f.some(v => v !== "")) filas.push(f); }
     const aoa = filas.map(f => f.map(v => v && typeof v === "object" && "n" in v ? v.n : v));
     const ws = XLSX.utils.aoa_to_sheet(aoa);
     filas.forEach((f, r) => f.forEach((v, c) => { if (v && typeof v === "object" && "n" in v){ const cell = ws[XLSX.utils.encode_cell({ r, c })]; if (cell) cell.z = v.z || "#,##0.##"; } }));
