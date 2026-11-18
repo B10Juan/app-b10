@@ -6,6 +6,7 @@ import { renderCompras, renderComprasRef } from "./modulos/compras.js";
 import { renderUsuarios } from "./modulos/usuarios.js";
 import { renderDemanda } from "./modulos/demanda.js";
 import { renderTesoreria } from "./modulos/tesoreria.js";
+import { renderTesoreriaClientes } from "./modulos/tesoreria_clientes.js";
 import { renderPlanificador } from "./modulos/planificador.js";
 import { renderRrhh, renderDatos } from "./modulos/rrhh.js";
 import { renderOrganigrama } from "./modulos/organigrama.js";
@@ -31,6 +32,7 @@ const MODULOS = [
   { codigo:"plan_accion",  ruta:"plan",     titulo:"Plan Estratégico", texto:"Seguimiento del plan estratégico: líneas estratégicas, acciones clave, actividades y tareas, con responsables, estados, calendario y cronograma.", listo:true },
   { codigo:"demanda",      ruta:"demanda",  titulo:"Análisis de la demanda", texto:"Evolución de los pedidos de venta desde 2023: comparativas por año, estacionalidad, clientes, productos, zonas y agentes, cartera pendiente y detalle de líneas.", clase:"buy", listo:true },
   { codigo:"tesoreria_prov", ruta:"tesoreria-proveedores", titulo:"Facturas de proveedores pendientes de pago", texto:"Importes pendientes por proveedor y mes de vencimiento, separando lo vencido de lo que vence más adelante, con el detalle de cada factura.", clase:"pay", listo:true },
+  { codigo:"tesoreria_cli", ruta:"tesoreria-clientes", titulo:"Facturas de clientes pendientes de cobro", texto:"Importes pendientes de cobro por mercado, sistema de cobro, modo de pago y cliente, por mes de vencimiento, vencido y no vencido, con el detalle de cada factura.", clase:"pay", listo:true },
   { codigo:"rrhh",         ruta:"personas-costes", titulo:"Costes de personal", texto:"Coste de empresa por mes, sección y persona (nómina y ETT), previsión del mes siguiente y control de las ETT.", clase:"pay", listo:true },
   { codigo:"vacaciones",   ruta:"vacaciones", titulo:"Vacaciones", texto:"Días de vacaciones por trabajador: del año, pendientes de años anteriores, disfrutados y pendientes, con calendario de festivos e informe en PDF.", listo:true },
   { codigo:"organigrama",  ruta:"organigrama", titulo:"Organigrama", texto:"Estructura de dirección, apoyo a la dirección, pilares y departamentos, vista como organigrama y exportable a PowerPoint.", listo:true },
@@ -43,7 +45,7 @@ const INICIO = [
   { tipo:"modulo",  codigo:"plan_accion" },
   { tipo:"carpeta", id:"operaciones", titulo:"Operaciones", texto:"Compras y planificación de las compras de importación.", hijos:["compras","planificador"] },
   { tipo:"usuarios" },
-  { tipo:"carpeta", id:"tesoreria",   titulo:"Tesorería",   texto:"Pagos pendientes y previsión de tesorería.", hijos:["tesoreria_prov"] },
+  { tipo:"carpeta", id:"tesoreria",   titulo:"Tesorería",   texto:"Pagos y cobros pendientes y previsión de tesorería.", hijos:["tesoreria_prov","tesoreria_cli"] },
   { tipo:"carpeta", id:"personas",    titulo:"Personas",    texto:"Plantilla, ETT y costes de personal.", hijos:["rrhh","organigrama","datos","vacaciones"] },
   { tipo:"carpeta", id:"comercial",   titulo:"Comercial",   texto:"Clientes y equipo comercial.", hijos:["demanda","crm"] },
 ];
@@ -70,7 +72,7 @@ function draw(){
   if (md.debe_cambiar_password) return drawPassword(app, true);
   if (r === "contrasena") return drawPassword(app, false);
   const esPlan = r === "planificador" || r === "proveedores" || r === "stock" || /^prov-\d+(-pedidos)?$/.test(r);
-  const esApp = ["compras","compras-ref","proveedores","pagos","usuarios","plan","demanda","stock","tesoreria-proveedores","personas-costes","datos","organigrama","vacaciones"].includes(r) || /^prov-\d+/.test(r);
+  const esApp = ["compras","compras-ref","proveedores","pagos","usuarios","plan","demanda","stock","tesoreria-proveedores","tesoreria-clientes","personas-costes","datos","organigrama","vacaciones"].includes(r) || /^prov-\d+/.test(r);
   app.classList.toggle("con-lateral", esApp);
   if (esApp){ app.append(lateral(r)); const m = el("main","contenido"); app.append(m); app = m; }
   if (r === "compras" && nivel("compras")) renderCompras(app);
@@ -81,6 +83,7 @@ function draw(){
   else if (r === "plan" && nivel("plan_accion")) drawPlan(app);
   else if (r === "demanda" && nivel("demanda")) renderDemanda(app);
   else if (r === "tesoreria-proveedores" && nivel("tesoreria_prov")) renderTesoreria(app);
+  else if (r === "tesoreria-clientes" && nivel("tesoreria_cli")) renderTesoreriaClientes(app);
   else if (r === "personas-costes" && nivel("rrhh")) renderRrhh(app);
   else if (r === "organigrama" && nivel("organigrama")) renderOrganigrama(app);
   else if (r === "vacaciones" && nivel("vacaciones")) renderVacaciones(app);
@@ -159,7 +162,8 @@ function lateral(r){
   if (nivel("pagos")) item("#pagos", "pagos", "Pagos", r === "pagos");
   if (nivel("plan_accion")) item("#plan", "plan", "Plan P.E.", r === "plan");
   if (nivel("demanda")) item("#demanda", "demanda", "Demanda", r === "demanda");
-  if (nivel("tesoreria_prov")) item("#tesoreria-proveedores", "tesoreria", "Tesorería", r === "tesoreria-proveedores");
+  if (nivel("tesoreria_prov")) item("#tesoreria-proveedores", "tesoreria", "Pagos prov.", r === "tesoreria-proveedores");
+  if (nivel("tesoreria_cli")) item("#tesoreria-clientes", "cobros", "Cobros", r === "tesoreria-clientes");
   if (nivel("rrhh")) item("#personas-costes", "personas", "Costes RRHH", r === "personas-costes");
   if (nivel("vacaciones")) item("#vacaciones", "vacaciones", "Vacaciones", r === "vacaciones");
   if (nivel("organigrama")) item("#organigrama", "organigrama", "Organigrama", r === "organigrama");
