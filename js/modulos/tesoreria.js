@@ -56,6 +56,7 @@ export function renderTesoreria(app){
     inp.addEventListener("change", () => { if (inp.files[0]) cargarFichero(inp.files[0], T.msg, inp); });
     acc.append(up, inp);
   }
+  const fmb = el("button","btn","Descargar formato"); fmb.title = "Excel con el formato de la hoja «Proveedores» (columnas e instrucciones) y los datos actuales, para poder preparar y subir el fichero"; fmb.addEventListener("click", descargarFormato); acc.prepend(fmb);
   ctl.append(acc); box.append(ctl);
   if (!T.msg) T.msg = el("p","hint upmsg"); box.append(T.msg);
 
@@ -151,19 +152,94 @@ function cargaBox(box){
 const S = v => { if (v == null) return null; const s = String(v).trim(); return s && s !== "nan" ? s : null; };
 const N = v => { if (v == null || v === "") return null; const x = typeof v === "number" ? v : Number(String(v).replace(",", ".")); return isFinite(x) ? x : null; };
 const D = v => { if (!v) return null; const d = v instanceof Date ? v : new Date(v); if (isNaN(d)) return null; const p = n => String(n).padStart(2,"0"); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`; };
+// ---- Formato del fichero: el de la hoja «Proveedores» de Tesoreria.xlsx ----
+const COLS = [
+  // [columna, obligatoria, descripción, ejemplo]
+  ["Cod Proveedor", true,  "Código del proveedor en contabilidad", "151"],
+  ["Proveedor",     true,  "Nombre del proveedor", "HEGARDT S.L."],
+  ["Asiento",       false, "Asiento contable de la factura", "fc024298"],
+  ["Factura",       true,  "Número de factura del proveedor", "24-128"],
+  ["Concepto",      false, "Concepto o comentario", ""],
+  ["Pagado",        true,  "«P» si está pagada; vacío si está pendiente", ""],
+  ["Fecha facura",  true,  "Fecha de la factura (también vale el título «Fecha factura»)", "16/01/2026"],
+  ["Vto Original",  true,  "Fecha de vencimiento", "15/02/2026"],
+  ["Riesgo",        true,  "Importe pendiente de pago: negativo = a pagar; positivo = abono a favor; 0 = pagada", "-551,40"],
+  ["importe",       false, "Importe total de la factura", "-551,40"],
+  ["Banco",         true,  "Forma de pago (TRANAC, TRAIMP, LCAIXA, GIRSAB, GIRBAN…)", "GIRBAN"],
+  ["Mes Vto", false, "Calculada (no se usa al cargar)", ""], ["Año Vto", false, "Calculada (no se usa al cargar)", ""], ["Nº Semana", false, "Calculada (no se usa al cargar)", ""],
+  ["Dia", false, "Calculada (no se usa al cargar)", ""], ["Dia Real", false, "Calculada (no se usa al cargar)", ""],
+  ["Vto Tabla",     false, "Vencimiento según la tabla de pagos", ""],
+  ["Subvención",    false, "Importe subvencionado, si lo hay", "0"],
+  ["Vencida",       false, "Calculada en el Excel; la app la recalcula con la fecha de hoy", ""],
+  ["Mes fra", false, "Calculada (no se usa al cargar)", ""], ["Año Fra", false, "Calculada (no se usa al cargar)", ""],
+];
+const nrm = x => String(x ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/\s+/g," ").trim();
+const ALIAS = { "fecha facura":["fecha facura","fecha factura"], "importe":["importe"] };
+function mapaColumnas(headers){
+  const h = headers.map(nrm), m = {};
+  for (const [c] of COLS){ const alts = ALIAS[nrm(c)] || [nrm(c)]; const i = h.findIndex(x => alts.includes(x)); if (i >= 0) m[c] = headers[i]; }
+  return m;
+}
+function hojaValida(wb){
+  // primero la hoja «Proveedores»; si no, cualquier hoja con todas las columnas obligatorias
+  const orden = [...wb.SheetNames].sort((a,b) => (nrm(b) === "proveedores") - (nrm(a) === "proveedores"));
+  let mejor = null;
+  for (const n of orden){
+    const ws = wb.Sheets[n]; if (!ws || !ws["!ref"]) continue;
+    const head = (XLSX.utils.sheet_to_json(ws, { header:1, range:0, defval:null })[0] || []).map(x => x == null ? "" : String(x));
+    const m = mapaColumnas(head), faltan = COLS.filter(([c,ob]) => ob && !m[c]).map(([c]) => c);
+    if (!faltan.length) return { nombre:n, ws, m, faltan };
+    if (!mejor || faltan.length < mejor.faltan.length) mejor = { nombre:n, ws, m, faltan };
+  }
+  return mejor;
+}
+function descargarFormato(){
+  const wb = XLSX.utils.book_new(), hoy = new Date();
+  const A = [COLS.map(c => c[0])];
+  for (const r of (T.rows || [])){
+    const v = r.venc ? parseKey(r.venc) : null, f = r.fecha_factura ? parseKey(r.fecha_factura) : null;
+    const sem = v ? Math.ceil((((v - Date.UTC(v.getUTCFullYear(),0,1)) / 864e5) + new Date(Date.UTC(v.getUTCFullYear(),0,1)).getUTCDay() + 1) / 7) : "";
+    A.push([r.proveedor_cod, r.proveedor, r.asiento || "", r.factura || "", r.concepto || "", "", f ? xDate(f) : "", v ? xDate(v) : "", +r.importe_pendiente || 0, r.importe == null ? "" : +r.importe, r.forma_pago || "",
+      v ? v.getUTCMonth()+1 : "", v ? v.getUTCFullYear() : "", sem, v ? v.getUTCDay() || 7 : "", v ? v.getUTCDate() : "", "", r.subvencion == null ? 0 : +r.subvencion, v && r.venc < hoyKey ? "Vencida" : "", f ? f.getUTCMonth()+1 : "", f ? f.getUTCFullYear() : ""]);
+  }
+  XLSX.utils.book_append_sheet(wb, sheet(A, [12,34,12,16,28,8,12,12,12,12,10,8,8,9,6,8,12,11,9,8,8]), "Proveedores");
+  const I = [["Columna","Obligatoria","Qué contiene","Ejemplo"], ...COLS.map(([c,ob,d,e]) => [c, ob ? "Sí" : "No", d, e]), [],
+    ["Cómo subirlo"], ["1. La hoja debe llamarse «Proveedores» y la primera fila llevar estos títulos (el orden da igual)."],
+    ["2. Una fila por factura. Las pendientes de pago tienen «Riesgo» distinto de cero."],
+    ["3. En la app: Tesorería › Facturas de proveedores pendientes de pago › Actualizar con Excel. Se sustituyen todos los datos."],
+    [`Formato descargado el ${String(hoy.getDate()).padStart(2,"0")}/${String(hoy.getMonth()+1).padStart(2,"0")}/${hoy.getFullYear()} con ${(T.rows || []).length} facturas pendientes.`]];
+  XLSX.utils.book_append_sheet(wb, sheet(I, [16,11,70,16]), "Instrucciones");
+  saveXlsx(wb, `Tesoreria_formato_Proveedores_${stamp()}.xlsx`);
+}
 async function cargarFichero(file, msg, inp){
   const set = t => { msg.textContent = t; };
+  const rechazar = t => { set(t); toast("Fichero no válido: no se ha cargado nada"); inp.disabled = false; inp.value = ""; };
   try{
-    inp.disabled = true; set("Leyendo la hoja Proveedores…");
-    const wb = XLSX.read(await file.arrayBuffer(), { type:"array", cellDates:true, sheets:["Proveedores"] });
-    const ws = wb.Sheets["Proveedores"]; if (!ws) throw new Error("El fichero no tiene la hoja «Proveedores».");
-    const R = XLSX.utils.sheet_to_json(ws, { defval:null, raw:true }).filter(r => r.Proveedor || r["Cod Proveedor"]);
-    const rows = R.map(r => ({ proveedor_cod:S(r["Cod Proveedor"]), proveedor:S(r.Proveedor), asiento:S(r.Asiento), factura:S(r.Factura), concepto:S(r.Concepto), pagada: String(r.Pagado || "").trim().toUpperCase() === "P",
-      fecha_factura:D(r["Fecha facura"] ?? r["Fecha factura"]), vencimiento:D(r["Vto Original"]), importe_pendiente:N(r.Riesgo), importe:N(r.importe), forma_pago:S(r.Banco), vencimiento_tabla:D(r["Vto Tabla"]),
-      subvencion:N(r["Subvención"]), vencida_excel: String(r.Vencida || "").trim() === "Vencida" }));
+    inp.disabled = true; set("Comprobando el fichero…");
+    const buf = await file.arrayBuffer();
+    let wb = XLSX.read(buf, { type:"array", cellDates:true, sheets:["Proveedores"] });   // rápido: solo la hoja habitual
+    if (!wb.SheetNames.some(n => wb.Sheets[n] && wb.Sheets[n]["!ref"])) wb = XLSX.read(buf, { type:"array", cellDates:true });
+    const h = hojaValida(wb);
+    if (!h) return rechazar("El fichero no tiene ninguna hoja con datos. No se ha cargado nada.");
+    if (h.faltan.length) return rechazar(`No es el fichero de facturas de proveedores: en la hoja «${h.nombre}» faltan las columnas ${h.faltan.map(c => "«"+c+"»").join(", ")}. No se ha cargado nada. Descarga el formato con «Descargar formato».`);
+    const m = h.m, g = (r, c) => m[c] ? r[m[c]] : null;
+    const R = XLSX.utils.sheet_to_json(h.ws, { defval:null, raw:true }).filter(r => S(g(r,"Proveedor")) || S(g(r,"Cod Proveedor")));
+    if (!R.length) return rechazar(`La hoja «${h.nombre}» tiene las columnas correctas pero ninguna factura. No se ha cargado nada.`);
+    const errores = [];
+    const rows = R.map((r, i) => {
+      const fila = i + 2, rv = g(r,"Riesgo"), riesgo = N(rv), vto = D(g(r,"Vto Original")), ff = D(g(r,"Fecha facura"));
+      if (S(rv) != null && riesgo == null) errores.push(`fila ${fila}: «Riesgo» no es un número (${rv})`);
+      if (riesgo && !vto) errores.push(`fila ${fila}: factura pendiente sin «Vto Original» válido`);
+      if (riesgo && S(g(r,"Fecha facura")) && !ff) errores.push(`fila ${fila}: «Fecha facura» no es una fecha`);   // en las ya pagadas se ignora
+      return { proveedor_cod:S(g(r,"Cod Proveedor")), proveedor:S(g(r,"Proveedor")), asiento:S(g(r,"Asiento")), factura:S(g(r,"Factura")), concepto:S(g(r,"Concepto")),
+        pagada: String(g(r,"Pagado") || "").trim().toUpperCase() === "P", fecha_factura:ff, vencimiento:vto, importe_pendiente:riesgo, importe:N(g(r,"importe")),
+        forma_pago:S(g(r,"Banco")), vencimiento_tabla:D(g(r,"Vto Tabla")), subvencion:N(g(r,"Subvención")), vencida_excel: String(g(r,"Vencida") || "").trim() === "Vencida" };
+    });
+    if (errores.length) return rechazar(`El fichero tiene ${errores.length} error${errores.length === 1 ? "" : "es"} y no se ha cargado nada: ${errores.slice(0,5).join("; ")}${errores.length > 5 ? "…" : ""}`);
     const pend = rows.filter(r => r.importe_pendiente);
-    if (!confirm(`La hoja tiene ${rows.length} facturas, ${pend.length} pendientes de pago. Se sustituirán los datos actuales. ¿Continuar?`)){ set(""); inp.disabled = false; inp.value = ""; return; }
-    const c = await sb.schema("core").from("cargas").insert({ tipo:"tesoreria_proveedores", fichero:file.name, filas:rows.length, importe_total: Math.round(pend.reduce((s,r) => s + r.importe_pendiente, 0)*100)/100, fecha_datos:new Date(file.lastModified || Date.now()).toISOString(), notas:"Carga desde la app" }).select("id").single();
+    const tot = pend.reduce((s,r) => s - r.importe_pendiente, 0), provs = new Set(pend.map(r => r.proveedor)).size;
+    if (!confirm(`Fichero correcto (hoja «${h.nombre}»): ${rows.length} facturas, ${pend.length} pendientes de pago de ${provs} proveedores por ${eur(tot) || "0 €"}.\n\nSe sustituirán los datos actuales. ¿Continuar?`)){ set(""); inp.disabled = false; inp.value = ""; return; }
+    const c = await sb.schema("core").from("cargas").insert({ tipo:"tesoreria_proveedores", fichero:file.name, filas:rows.length, importe_total: Math.round(pend.reduce((s,r) => s + r.importe_pendiente, 0)*100)/100, fecha_datos:new Date(file.lastModified || Date.now()).toISOString(), notas:`Carga desde la app (hoja ${h.nombre})` }).select("id").single();
     if (c.error) throw c.error;
     set("Sustituyendo los datos…");
     const del = await sb.schema("tesoreria").from("facturas_proveedores").delete().gte("id", 0); if (del.error) throw del.error;
