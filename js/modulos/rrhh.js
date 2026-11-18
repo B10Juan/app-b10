@@ -532,8 +532,6 @@ function situacion(p, dia){
   if (!p.fecha_baja && p.motivo_baja) return { t:"Baja definitiva (falta la fecha)", cls:"neutral" };
   const a = R.data.aus.find(x => x.persona_id === p.id && x.fecha_inicio <= dia && (!x.fecha_fin || x.fecha_fin >= dia));
   if (a) return { t:a.tipo, cls: a.tipo.startsWith("IT") ? "bad" : "warn", a };
-  if (p.tipo_vinculo === "Nómina"){ const u = ultimoPeriodo(), n = R.data.nomina.find(x => x.codigo === p.codigo && x.periodo === u);
-    if (n && n.it_enfermedad && !R.data.aus.some(x => x.persona_id === p.id && x.tipo.startsWith("IT") && x.fecha_inicio <= finMes(u) && (!x.fecha_fin || x.fecha_fin >= u))) return { t:`IT en la nómina de ${mesLab(u)} (sin registrar)`, cls:"pend", mesIT:u }; }
   return { t:"Activa", cls:"ok" };
 }
 const diasMes = k => +finMes(k).slice(8,10);
@@ -711,17 +709,6 @@ function tarjetaAusencias(p, ed, cerrarFicha){
   const menos1 = k => { const d = new Date(k + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() - 1); return d.toISOString().slice(0,10); };
   const mas1 = k => { const d = new Date(k + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().slice(0,10); };
   const guardar = async (q, ok) => { const r = await q; if (r.error){ console.error(r.error); toast("No se ha podido guardar"); return; } toast(ok); cerrarFicha(); await recargarFicha(p); };
-  const itN = p.tipo_vinculo === "Nómina" ? D.nomina.filter(n => n.codigo === p.codigo && n.it_enfermedad).map(n => mesLab(n.periodo)) : [];
-  if (itN.length) c.append(el("p","hint",`La nómina recoge IT (enfermedad) en: ${itN.join(", ")}.`));
-  // IT que sale en la nómina y no está registrada: registrarla (abierta o ya con el alta)
-  if (ed && s.mesIT){
-    const bx = el("div"); bx.style.cssText = "border:1px solid var(--line);border-radius:6px;padding:8px 10px;margin:6px 0 10px;background:var(--surface-2)";
-    bx.append(el("b",null,`La nómina de ${mesLab(s.mesIT)} recoge una IT que no está registrada.`), el("p","hint","Regístrala para que la situación sea correcta. Si ya se ha reincorporado, pon la fecha y pasará a «Activa»."));
-    const ini = dIn(s.mesIT), vu = dIn(hoyKey); const g = el("div","f2"); g.append(fld("Inicio de la baja", ini), fld("Se reincorpora el (vacío = sigue de baja)", vu));
-    const b1 = el("button","btn small primary","Registrar la IT"); b1.type = "button";
-    b1.addEventListener("click", () => { if (!ini.value) return ini.focus(); if (vu.value && vu.value <= ini.value) return toast("La reincorporación tiene que ser posterior al inicio");
-      guardar(sch().from("ausencias").insert({ persona_id:p.id, tipo:"IT enfermedad común", fecha_inicio:ini.value, fecha_fin: vu.value ? menos1(vu.value) : null }), vu.value && vu.value <= hoyKey ? "IT registrada: la persona pasa a Activa" : "IT registrada"); });
-    bx.append(g, b1); c.append(bx); }
   // formulario (alta o edición de una ausencia)
   let edit = null; const t = el("select"); for (const x of TIPOS_AUS) t.append(new Option(x, x)); const i = dIn(hoyKey), f = dIn(""), o = el("input"); o.placeholder = "Observaciones"; const rv = dIn("");
   const frv = fld("Próxima revisión (IT)", rv); const syncT = () => { frv.style.display = t.value.startsWith("IT") ? "" : "none"; }; t.addEventListener("change", syncT);
