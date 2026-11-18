@@ -11,7 +11,7 @@ const CLASIF = ["M.O.D","M.O.I","M.O.E"];
 const VINCULOS = ["Nómina","ETT","Externo"];
 const CONTRATOS = ["Indefinido","Temporal","Fijo discontinuo","Prácticas","Formación","Puesta a disposición (ETT)"];
 const MOTIVOS = ["Despido","Baja voluntaria","Fin de contrato","Jubilación","Fin puesta a disposición","Baja (pendiente motivo)","Otros"];
-const OBLIG = [["clasificacion","Clasificación"],["departamento","Departamento"],["tipo_contrato","Tipo de contrato"],["fecha_alta","Fecha de alta"]];
+const OBLIG = [["clasificacion","Sección"],["departamento","Departamento"],["tipo_contrato","Tipo de contrato"],["fecha_alta","Fecha de alta"]];
 
 const R = { tab:"resumen", tabD:"personas", data:null, loading:false, anio:null, agr:"departamento", repartirEtt:false, indem:true, abiertos:new Set(),
   f:{ estado:"activos", vinculo:"", q:"", incompletas:false, soloIT:false, col:{} }, fe:{ q:"", dep:"" }, msg:null };
@@ -43,15 +43,16 @@ async function cargar(){
       sch().from("puestos").select("*").order("orden").then(r => { if (r.error) throw r.error; return r.data; }),
       todo(() => sch().from("ausencias").select("*").order("fecha_inicio")),
     ]);
-    let fact = [];
+    let fact = [], perm = [];
+    try { perm = await todo(() => sch().from("permisos").select("*").order("fecha_inicio")); } catch(e){ console.warn("Sin permisos", e); }
     try { fact = await todo(() => sch().from("v_ett_facturas").select("*").order("fecha_factura")); }
     catch(e){ console.warn("Sin facturas ETT", e); }
     const num = r => { for (const k of ["bruto","ss_empresa","coste_empresa","indemnizacion","it_enfermedad","vacaciones_finiquito","paga_extra","coste_total","coste_ordinario","horas_presencia","base_cc","ss_trabajador","irpf","otras_deducciones","liquido","paga_extra_irpf","paga_extra_liquido","prorrata_extra"]) r[k] = +r[k] || 0; return r; };
-    R.data = { personas, nomina: nomina.map(num), deps, periodos, act, puestos, aus, fact: fact.map(f => ({ ...f, base_imponible:+f.base_imponible || 0, importe_total:+f.importe_total || 0 })) };
+    R.data = { personas, nomina: nomina.map(num), deps, periodos, act, puestos, aus, perm, fact: fact.map(f => ({ ...f, base_imponible:+f.base_imponible || 0, importe_total:+f.importe_total || 0 })) };
     R.data.porCodigo = new Map(personas.map(p => [p.codigo, p]));
     const anios = [...new Set(nomina.map(n => +n.periodo.slice(0,4)))].sort();
     R.data.anios = anios; if (!R.anio || !anios.includes(R.anio)) R.anio = anios[anios.length - 1] || new Date().getFullYear();
-  } catch(e){ console.error(e); toast("No se han podido cargar los datos de personas."); R.data = { personas:[], nomina:[], deps:[], periodos:[], act:[], puestos:[], aus:[], fact:[], porCodigo:new Map(), anios:[] }; }
+  } catch(e){ console.error(e); toast("No se han podido cargar los datos de personas."); R.data = { personas:[], nomina:[], deps:[], periodos:[], act:[], puestos:[], aus:[], perm:[], fact:[], porCodigo:new Map(), anios:[] }; }
   R.loading = false; render();
 }
 const recargar = () => { R.data = null; render(); };
@@ -116,19 +117,19 @@ export function renderRrhh(app){
 export function renderDatos(app){
   document.title = "Formulario introducción de datos";
   const mod = nivel("datos") ? "datos" : "rrhh";
-  cabecera(app, "Formulario introducción de datos", "Tablas maestras: fichas de personas (nómina, ETT y externos) y estructura de clasificación, departamentos y puestos.", { txt:"Personas", href:"#personas" }, nivel("datos") === "editar" || nivel("rrhh") === "editar" ? null : mod);
+  cabecera(app, "Formulario introducción de datos", "Tablas maestras: fichas de personas (nómina, ETT y externos) y estructura de sección, departamentos y puestos.", { txt:"Personas", href:"#personas" }, nivel("datos") === "editar" || nivel("rrhh") === "editar" ? null : mod);
   const box = el("div","pad rrhh"); box.style.paddingBottom = "32px"; app.append(box);
   if (!R.data){ if (!R.loading) cargar(); box.append(el("div","card empty","Cargando datos…")); return; }
   const nav = el("nav","tabs"); nav.style.marginBottom = "12px";
   const inc = R.data.personas.filter(p => activa(p) && pendientes(p).length).length;
-  for (const [k,t] of [["personas", "Personas" + (inc ? ` (${inc} incompletas)` : "")],["estructura","Estructura de departamentos"],["plantilla","Número de personas por dpto."]]){
+  for (const [k,t] of [["personas", "Personas" + (inc ? ` (${inc} incompletas)` : "")],["estructura","Estructura de departamentos"],["plantilla","Número de personas por dpto."],["evolucion","Evolución de plantilla"]]){
     const a = el("a",null,t); a.href = "#datos"; if (R.tabD === k) a.setAttribute("aria-current","page"); a.addEventListener("click", e => { e.preventDefault(); R.tabD = k; render(); }); nav.append(a); }
   const acc = el("span"); acc.style.cssText = "margin-left:auto;display:flex;gap:8px";
-  const exv = el("button","btn small","Exportar vista a Excel"); exv.addEventListener("click", () => exportarVista(box, R.tabD === "estructura" ? "Estructura departamentos" : R.tabD === "plantilla" ? "Personas por departamento" : "Personas")); acc.append(exv);
+  const exv = el("button","btn small","Exportar vista a Excel"); exv.addEventListener("click", () => exportarVista(box, R.tabD === "estructura" ? "Estructura departamentos" : R.tabD === "plantilla" ? "Personas por departamento" : R.tabD === "evolucion" ? "Evolucion plantilla" : "Personas")); acc.append(exv);
   if (nivel("rrhh")){ const cl = el("a","btn small","Costes de personal ›"); cl.href = "#personas-costes"; acc.append(cl); }
   nav.append(acc);
   box.append(nav);
-  if (R.tabD === "estructura") tabEstructura(box); else if (R.tabD === "plantilla") tabPlantilla(box); else tabPersonas(box);
+  if (R.tabD === "estructura") tabEstructura(box); else if (R.tabD === "plantilla") tabPlantilla(box); else if (R.tabD === "evolucion") tabEvolucion(box); else tabPersonas(box);
 }
 
 // ---------- Resumen ----------
@@ -138,7 +139,7 @@ export function renderDatos(app){
 const indemn = n => R.indem ? n.indemnizacion : 0;
 const costeDev = n => n.coste_empresa - n.indemnizacion + indemn(n) + n.prorrata_extra;
 const ORDEN_CLAS = ["M.O.E","M.O.I","M.O.D","ETT"];
-const clasDe = p => !p ? "Sin clasificar" : p.tipo_vinculo === "ETT" ? "ETT" : (p.clasificacion || "Sin clasificar");
+const clasDe = p => !p ? "Sin sección" : p.tipo_vinculo === "ETT" ? "ETT" : (p.clasificacion || "Sin sección");
 function serieMensual(){
   const M = meses(), D = R.data;
   return M.map(m => {
@@ -179,17 +180,17 @@ function tabResumen(box){
     c.append(el("p","hint",`Nómina: coste de ${mesLab(ultimoPeriodo())} de cada persona (sin indemnizaciones), por los días que seguirá en la empresa según su fecha de baja, fin de contrato o excedencia. ETT: ${PV.tarifa ? `${Math.round(PV.tarifa)} € por día-persona (facturas de ${mesLab(PV.mtarifa)}) × ${PV.ettDias} días de contrato previstos` : "sin datos de facturas"}.`));
     if (PV.avisos.length){ const ul = el("ul"); for (const a of PV.avisos) ul.append(el("li",null,a)); c.append(el("p",null,"Contratos que terminan ese mes:"), ul); }
     box.append(c); }
-  // por clasificación: M.O.E, M.O.I, M.O.D y ETT
+  // por sección: M.O.E, M.O.I, M.O.D y ETT
   const D = R.data, G = {};
   for (const n of D.nomina) if (M.includes(n.periodo)){ const g = clasDe(D.porCodigo.get(n.codigo)); (G[g] = G[g] || {})[n.periodo] = (G[g][n.periodo] || 0) + costeDev(n); }
   G.ETT = Object.fromEntries(M.map(m => [m, sum(Object.values(ettMes(m)), x => x)]));
   const grupos = [...ORDEN_CLAS, ...Object.keys(G).filter(g => !ORDEN_CLAS.includes(g))].filter(g => G[g]);
   const F2 = grupos.map(g => ({ lab:g, v:M.map(m => G[g][m] || 0), p: PV ? (PV.porClas[g] || 0) : null }));
   F2.push({ lab:"Coste total personal", v:M.map((m,i) => sum(F2, f => f.v[i])), b:true, p: PV ? PV.tot : null });
-  tablaMeses(box, "Coste por clasificación", F2, M, kp);
+  tablaMeses(box, "Coste por sección", F2, M, kp);
   const P2 = grupos.map(g => ({ lab:g, n:true, v:M.map(m => g === "ETT" ? new Set(D.act.filter(a => a.periodo === m).map(a => a.codigo)).size
     : new Set(D.nomina.filter(n => n.periodo === m && (n.bruto || n.coste_empresa) && clasDe(D.porCodigo.get(n.codigo)) === g).map(n => n.codigo)).size), p: PV ? (PV.persClas[g] || 0) : null }));
-  tablaMeses(box, "Personas por clasificación", P2, M, kp);
+  tablaMeses(box, "Personas por sección", P2, M, kp);
   const avisos = avisosEtt(S); if (avisos.length){ const c = el("div","card"); c.append(el("h3",null,"A revisar")); const ul = el("ul"); for (const a of avisos) ul.append(el("li",null,a)); c.append(ul); box.append(c); }
   box.append(el("p","hint","Nómina ordinaria = coste de empresa del mes sin indemnizaciones. Paga extra de verano = la prorrata mensual que calcula la nómina (la paga se cobra en junio pero se devenga todo el año; su Seguridad Social ya va en la cotización de cada mes). ETT = facturas de las ETT en Tesorería, por mes de la factura y sin IVA. Personas ETT según los contratos de cada ficha."));
 }
@@ -203,7 +204,7 @@ function avisosEtt(S){
 }
 const ultimoMes = c => { let u = null; for (const n of R.data.nomina) if (n.codigo === c && (n.bruto || n.coste_total) && (!u || n.periodo > u)) u = n.periodo; return u; };
 
-// ---------- Por sección: clasificación › departamento › puesto › persona ----------
+// ---------- Por sección: sección › departamento › puesto › persona ----------
 function tabSeccion(box){
   ctrlIndem(box);
   const M = meses(), D = R.data, hojas = [];
@@ -225,7 +226,7 @@ function tabSeccion(box){
   const ordenar = (arr, nivel) => arr.sort((a,b) => nivel === 0 ? ((ORDEN_CLAS.indexOf(a.k) + 99) % 99) - ((ORDEN_CLAS.indexOf(b.k) + 99) % 99) : tot(b) - tot(a));
   const c = el("div","ctrl"); const ab = el("button","btn small","Desplegar todo"); ab.addEventListener("click", () => { const marca = n => { for (const h of n.hijos.values()){ R.abiertos.add(h.id); marca(h); } }; marca(raiz); render(); });
   const cb = el("button","btn small","Plegar todo"); cb.addEventListener("click", () => { R.abiertos.clear(); render(); }); c.append(ab, cb); box.append(c);
-  const tw = el("div","tblwrap"); const t = el("table","tbl"); const hr = el("tr"); hr.append(el("th",null,"Clasificación › departamento › puesto › persona")); for (const m of M) hr.append(el("th","n",mesLab(m))); for (const h of ["Total","Media mes","% s/total"]) hr.append(el("th","n",h)); t.append(el("thead")); t.tHead.append(hr);
+  const tw = el("div","tblwrap"); const t = el("table","tbl"); const hr = el("tr"); hr.append(el("th",null,"Sección › departamento › puesto › persona")); for (const m of M) hr.append(el("th","n",mesLab(m))); for (const h of ["Total","Media mes","% s/total"]) hr.append(el("th","n",h)); t.append(el("thead")); t.tHead.append(hr);
   const tb = el("tbody"), TT = tot(raiz);
   const fila = (lab, v, nivel, opts) => { const tr = el("tr", opts.cls || null); const td = el("td"); td.style.paddingLeft = (10 + nivel * 18) + "px"; td.style.whiteSpace = "nowrap";
     if (opts.toggle){ td.append(el("span","chev", opts.open ? "▾ " : "▸ ")); tr.style.cursor = "pointer"; tr.addEventListener("click", opts.toggle); }
@@ -310,7 +311,7 @@ function tabPersonas(box){
     { h:"Nombre", v:p => p.nombre, f:"txt" },
     { h:"Situación", v:p => situacion(p).t, f:"sel", c:p => { const st = situacion(p), x = el("td"); x.append(el("span","tag " + st.cls, st.t)); return x; } },
     { h:"Vínculo", v:p => p.tipo_vinculo + (p.empresa_ett ? " · " + p.empresa_ett : ""), f:"sel" },
-    { h:"Clasif.", v:p => p.clasificacion || "", f:"sel" },
+    { h:"Sección", v:p => p.clasificacion || "", f:"sel" },
     { h:"Grupo prof.", v:p => p.grupo_profesional || "", f:"sel" },
     { h:"Departamento", v:p => p.departamento || "", f:"sel" },
     { h:"Puesto / categoría", v:p => p.puesto || p.categoria || "", f:"sel" },
@@ -342,7 +343,7 @@ function tabPersonas(box){
   t.append(tb); tw.append(t); box.append(tw);
   if (activos.length || F.soloIT){ const lim = el("p","hint"); lim.append(`${L.length} de ${L0.length} personas con los filtros de columna${F.soloIT ? " (solo bajas por IT)" : ""}. `);
     const b = el("button","btn small","Quitar filtros de columna"); b.type = "button"; b.addEventListener("click", () => { F.col = {}; F.soloIT = false; render(); }); lim.append(b); box.append(lim); }
-  box.append(el("p","hint","Pulsa una persona para ver o editar su ficha. Para guardar basta con el nombre y el código (y la empresa si es de ETT); el resto se puede completar después. Las fichas a las que les falten clasificación, departamento, contrato o fecha de alta salen como incompletas."));
+  box.append(el("p","hint","Pulsa una persona para ver o editar su ficha. Para guardar basta con el nombre y el código (y la empresa si es de ETT); el resto se puede completar después. Las fichas a las que les falten sección, departamento, contrato o fecha de alta salen como incompletas."));
 }
 
 // Baja por IT abierta hoy (la más reciente)
@@ -381,9 +382,9 @@ async function ficha(p){
   const blkEtt = fila(campo("empresa_ett","Empresa ETT","select",[...new Set(["Noawork","Interim", ...D.personas.map(x => x.empresa_ett).filter(Boolean)])],true), campo("codigo","Código","text",null,false));
   const blkNom = fila(campo("codigo","Código de nómina","text",null,true), campo("empleador","Empleador","text",null,false));
   f.append(blkEtt, blkNom);
-  { const d = el("div","f"); d.dataset.f = "puesto_id"; const sp = selectPuesto(v.puesto_id); sp.disabled = !ed; I.puesto_id = sp; d.append(el("label",null,"Puesto"), sp, el("span","hint", D.puestos.length ? "Al elegir el puesto se rellenan el departamento y la clasificación." : "Crea los puestos en la pestaña Estructura."));
+  { const d = el("div","f"); d.dataset.f = "puesto_id"; const sp = selectPuesto(v.puesto_id); sp.disabled = !ed; I.puesto_id = sp; d.append(el("label",null,"Puesto"), sp, el("span","hint", D.puestos.length ? "Al elegir el puesto se rellenan el departamento y la sección." : "Crea los puestos en la pestaña Estructura."));
     f.append(fila(d, campo("grupo_profesional","Grupo profesional","text"))); }
-  f.append(fila(campo("clasificacion","Clasificación","select",CLASIF,true), campo("departamento","Departamento","select",D.deps.filter(d => d.activo !== false).map(d => d.nombre),true)));
+  f.append(fila(campo("clasificacion","Sección","select",CLASIF,true), campo("departamento","Departamento","select",D.deps.filter(d => d.activo !== false).map(d => d.nombre),true)));
   f.append(campo("categoria","Categoría","text"));
   const syncP = () => { const pu = D.puestos.find(x => String(x.id) === I.puesto_id.value); if (pu){ I.clasificacion.value = pu.clasificacion; I.departamento.value = pu.departamento; } I.clasificacion.disabled = I.departamento.disabled = !ed || !!pu; };
   I.puesto_id.addEventListener("change", syncP); syncP();
@@ -430,7 +431,7 @@ async function ficha(p){
         const bs = el("div"); bs.style.cssText = "display:flex;gap:8px;flex-wrap:wrap"; if (per.length) bs.append(up); bs.append(ad); d.append(g, lab, bs); cargarSel(); }
       f.append(d);
     }
-    f.append(tarjetaAusencias(p, ed, () => dlg.close()));
+    f.append(tarjetaAusencias(p, ed, () => dlg.close()), tarjetaPermisos(p, ed, () => dlg.close()));
     const mv = await sch().from("movimientos").select("fecha,tipo,valor_anterior,valor_nuevo").eq("persona_id", p.id).order("fecha");
     if (mv.data && mv.data.length){ const det = el("details"); det.style.margin = "0 0 10px"; det.append(el("summary",null,`Historial (${mv.data.length})`)); const ul = el("ul"); for (const m of mv.data) ul.append(el("li",null,`${fec(m.fecha)} · ${m.tipo}${m.valor_anterior ? ": " + m.valor_anterior + " →" : ""}${m.valor_nuevo ? " " + m.valor_nuevo : ""}`)); det.append(ul); f.append(det); }
     const rt = retribucion(p.codigo); if (rt) f.append(tarjetaRetribucion(rt));
@@ -461,7 +462,7 @@ async function ficha(p){
       if (!r.error && ett && val.fecha_alta) await sch().from("ett_periodos").insert({ persona_id:r.data.id, empresa_ett:val.empresa_ett, fecha_inicio:val.fecha_alta, fecha_fin:finPrev.value || null }); }
     else r = await sch().from("personas").update(row).eq("id", p.id);
     if (r.error){ console.error(r.error); err.textContent = r.error.code === "23505" ? "Ya existe una persona con ese código." : "No se ha podido guardar: " + r.error.message; return; }
-    const etq = { clasificacion:"clasificación", departamento:"departamento", tipo_contrato:"contrato", fecha_alta:"fecha de alta" };
+    const etq = { clasificacion:"sección", departamento:"departamento", tipo_contrato:"contrato", fecha_alta:"fecha de alta" };
     toast((nueva ? "Persona dada de alta" : "Ficha guardada") + (pend.length ? ". Pendiente: " + pend.map(k => etq[k]).join(", ") : "")); dlg.close(); recargar();
   });
   dlg.showModal();
@@ -523,7 +524,19 @@ function tabEtt(box){
 }
 
 // ---------- Situación de la persona (activa, IT, excedencia, vacaciones, baja definitiva) ----------
-const TIPOS_AUS = ["IT enfermedad común","IT accidente de trabajo","Excedencia","Vacaciones","Permiso","Otra"];
+const TIPOS_AUS = ["IT enfermedad común","IT accidente de trabajo","Excedencia","Vacaciones","Otra"];
+const TIPOS_PERM = ["Asuntos propios","Consulta médica","Matrimonio o pareja de hecho","Nacimiento o adopción","Enfermedad, hospitalización o fallecimiento de familiar","Traslado de domicilio","Deber inexcusable","Exámenes o formación","Lactancia","Representación sindical","Otro"];
+// Estado de una persona un día: fuera (no está en plantilla), baja (IT, excedencia u otra ausencia), permiso (permiso o vacaciones) o trabaja
+function estadoDia(p, dia){
+  if (p.fecha_baja && p.fecha_baja < dia) return { e:"fuera" };
+  if (!p.fecha_baja && p.motivo_baja) return { e:"fuera" };
+  if (p.fecha_alta && p.fecha_alta > dia) return { e:"fuera" };
+  const a = R.data.aus.find(x => x.persona_id === p.id && x.fecha_inicio <= dia && (!x.fecha_fin || x.fecha_fin >= dia));
+  if (a) return a.tipo === "Vacaciones" || a.tipo === "Permiso" ? { e:"permiso", t:a.tipo } : { e:"baja", t:a.tipo };
+  const pm = (R.data.perm || []).find(x => x.persona_id === p.id && x.fecha_inicio <= dia && (x.fecha_fin || x.fecha_inicio) >= dia);
+  if (pm) return { e:"permiso", t:"Permiso: " + pm.tipo + (pm.horas ? ` (${String(+pm.horas).replace(".", ",")} h)` : ""), pm };
+  return { e:"trabaja" };
+}
 const CLAS_LAB = { "M.O.E":"M.O.E · mano de obra de estructura", "M.O.I":"M.O.I · mano de obra indirecta", "M.O.D":"M.O.D · mano de obra directa" };
 function ultimoPeriodo(){ let u = null; for (const n of R.data.nomina) if (!u || n.periodo > u) u = n.periodo; return u; }
 function situacion(p, dia){
@@ -532,6 +545,8 @@ function situacion(p, dia){
   if (!p.fecha_baja && p.motivo_baja) return { t:"Baja definitiva (falta la fecha)", cls:"neutral" };
   const a = R.data.aus.find(x => x.persona_id === p.id && x.fecha_inicio <= dia && (!x.fecha_fin || x.fecha_fin >= dia));
   if (a) return { t:a.tipo, cls: a.tipo.startsWith("IT") ? "bad" : "warn", a };
+  const pm = (R.data.perm || []).find(x => x.persona_id === p.id && x.fecha_inicio <= dia && (x.fecha_fin || x.fecha_inicio) >= dia);
+  if (pm) return { t:"Permiso: " + pm.tipo + (pm.horas ? ` (${String(+pm.horas).replace(".", ",")} h)` : ""), cls:"warn", pm };
   return { t:"Activa", cls:"ok" };
 }
 const diasMes = k => +finMes(k).slice(8,10);
@@ -619,35 +634,35 @@ async function desglose(codigo, periodo){
 }
 const eur2 = v => { if (v == null || !isFinite(v)) return ""; const [e, d] = Math.abs(v).toFixed(2).split("."); return (v < 0 ? "-" : "") + e.replace(/\B(?=(\d{3})+(?!\d))/g, ".") + "," + d; };
 
-// ---------- Estructura: clasificación › departamento › puesto ----------
+// ---------- Estructura: sección › departamento › puesto ----------
 function tabEstructura(box){
   const D = R.data, ed = puede();
   const activos = D.personas.filter(activa);
   const nPu = id => activos.filter(p => p.puesto_id === id).length;
   const clasDep = d => d.clasificacion || null;
-  box.append(el("p","hint","La estructura tiene tres niveles: clasificación (M.O.E, M.O.I o M.O.D) › departamento › puesto. Cada departamento pertenece a una clasificación y cada puesto a un departamento (y toma su clasificación). Al asignar un puesto a una persona, su ficha toma el departamento y la clasificación."));
+  box.append(el("p","hint","La estructura tiene tres niveles: sección (M.O.E, M.O.I o M.O.D) › departamento › puesto. Cada departamento pertenece a una sección y cada puesto a un departamento (y toma su sección). Al asignar un puesto a una persona, su ficha toma el departamento y la sección."));
   if (ed){
     const fld = (lab, node) => { const d = el("div","fld"); d.append(el("span",null,lab), node); return d; };
-    const selClas = () => { const s = el("select"); s.append(new Option("Clasificación…","")); for (const k of ["M.O.E","M.O.I","M.O.D"]) s.append(new Option(CLAS_LAB[k], k)); return s; };
+    const selClas = () => { const s = el("select"); s.append(new Option("Sección…","")); for (const k of ["M.O.E","M.O.I","M.O.D"]) s.append(new Option(CLAS_LAB[k], k)); return s; };
     const c = el("div","ctrl"); c.append(el("b",null,"1 · Nuevo departamento"));
     const dc = selClas(), dn = el("input"); dn.placeholder = "Nombre del departamento";
     const db = el("button","btn","Crear departamento"); db.type = "button";
     db.addEventListener("click", async () => { if (!dc.value) return dc.focus(); const n = dn.value.trim(); if (!n){ dn.focus(); return; } const r = await sch().from("departamentos").insert({ nombre:n, clasificacion:dc.value, orden:900 }); if (r.error){ toast(r.error.code === "23505" ? "Ese departamento ya existe" : "No se ha podido crear"); return; } toast("Departamento creado"); recargar(); });
-    c.append(fld("Clasificación", dc), fld("Nombre del departamento", dn), db); box.append(c);
+    c.append(fld("Sección", dc), fld("Nombre del departamento", dn), db); box.append(c);
     const c2 = el("div","ctrl"); c2.append(el("b",null,"2 · Nuevo puesto"));
     const pd = selectDepartamento(""), pn = el("input"); pn.placeholder = "Nombre del puesto"; const pc = el("span","hint","");
-    pd.addEventListener("change", () => { const d = D.deps.find(x => x.nombre === pd.value); pc.textContent = d ? (d.clasificacion ? `Clasificación: ${d.clasificacion}` : "Este departamento no tiene clasificación: ponla con «Editar» en el árbol") : ""; });
+    pd.addEventListener("change", () => { const d = D.deps.find(x => x.nombre === pd.value); pc.textContent = d ? (d.clasificacion ? `Sección: ${d.clasificacion}` : "Este departamento no tiene sección: ponla con «Editar» en el árbol") : ""; });
     const pb = el("button","btn primary","Crear puesto"); pb.type = "button";
     pb.addEventListener("click", async () => { if (!pd.value) return pd.focus(); if (!pn.value.trim()) return pn.focus(); const d = D.deps.find(x => x.nombre === pd.value);
-      if (!d || !d.clasificacion){ toast("Pon antes la clasificación del departamento (botón «Editar» del departamento)"); return; }
+      if (!d || !d.clasificacion){ toast("Pon antes la sección del departamento (botón «Editar» del departamento)"); return; }
       const r = await sch().from("puestos").insert({ nombre:pn.value.trim(), departamento:pd.value, clasificacion:d.clasificacion }); if (r.error){ toast(r.error.code === "23505" ? "Ese puesto ya existe en el departamento" : "No se ha podido crear"); return; } toast("Puesto creado"); recargar(); });
     c2.append(fld("Departamento", pd), fld("Nombre del puesto", pn), pb, pc); box.append(c2);
   }
-  // árbol clasificación › departamento › puesto
-  const tw = el("div","tblwrap"); const t = el("table","tbl"); const hr = el("tr"); for (const h of ["Clasificación › departamento › puesto","Personas activas",""]) hr.append(el("th", h === "Personas activas" ? "n" : null, h)); t.append(el("thead")); t.tHead.append(hr);
+  // árbol sección › departamento › puesto
+  const tw = el("div","tblwrap"); const t = el("table","tbl"); const hr = el("tr"); for (const h of ["Sección › departamento › puesto","Personas activas",""]) hr.append(el("th", h === "Personas activas" ? "n" : null, h)); t.append(el("thead")); t.tHead.append(hr);
   const tb = el("tbody");
   const btn = (txt, fn) => { const b = el("button","btn small",txt); b.type = "button"; b.addEventListener("click", e => { e.stopPropagation(); fn(); }); return b; };
-  const grupos = [...["M.O.E","M.O.I","M.O.D"].map(k => [k, CLAS_LAB[k]]), [null, "Departamentos sin clasificación"]];
+  const grupos = [...["M.O.E","M.O.I","M.O.D"].map(k => [k, CLAS_LAB[k]]), [null, "Departamentos sin sección"]];
   for (const [k, lab] of grupos){
     const deps = D.deps.filter(d => clasDep(d) === k).sort((a,b) => a.nombre.localeCompare(b.nombre, "es")); if (!deps.length && !k) continue;
     const tot = sum(deps, d => activos.filter(p => p.departamento === d.nombre).length);
@@ -670,7 +685,7 @@ function tabEstructura(box){
   const sin = activos.filter(p => !p.puesto_id);
   box.append(el("h3",null,`Personas activas sin puesto (${sin.length})`));
   if (!D.puestos.length) box.append(el("p","hint","Crea primero los puestos para poder asignarlos."));
-  const tw2 = el("div","tblwrap"); const t2 = el("table","tbl"); const h2 = el("tr"); for (const h of ["Código","Nombre","Clasificación actual","Departamento actual","Asignar puesto"]) h2.append(el("th",null,h)); t2.append(el("thead")); t2.tHead.append(h2);
+  const tw2 = el("div","tblwrap"); const t2 = el("table","tbl"); const h2 = el("tr"); for (const h of ["Código","Nombre","Sección actual","Departamento actual","Asignar puesto"]) h2.append(el("th",null,h)); t2.append(el("thead")); t2.tHead.append(h2);
   const b2 = el("tbody");
   for (const p of sin){ const tr = el("tr"); const s = selectPuesto(p.puesto_id); s.disabled = !ed;
     s.addEventListener("change", async () => { if (!s.value) return; const r = await sch().from("personas").update({ puesto_id:+s.value }).eq("id", p.id); if (r.error){ toast("No se ha podido asignar"); return; } toast(`${p.nombre}: puesto asignado`); recargar(); });
@@ -685,44 +700,81 @@ function selectPuesto(val){
   s.value = val ? String(val) : ""; return s;
 }
 // ---------- Número de personas por departamento ----------
-// Plantilla actual (sin baja definitiva). «Activas»: trabajando hoy (o de vacaciones). «Bajas»: de baja hoy por IT, excedencia, permiso u otra ausencia.
+// En un día: Total = plantilla (dadas de alta y sin baja definitiva) = Bajas + Activas; Activas = Permisos + Trabajando.
+const MEDIDAS_PL = [["total","Total personas"],["baja","Bajas"],["activa","Activas"],["permiso","Permisos"],["trabaja","Empleados trabajando"]];
+function cuentaDia(P, dia){ const o = { total:0, baja:0, activa:0, permiso:0, trabaja:0 }; for (const p of P){ const e = estadoDia(p, dia).e; if (e === "fuera") continue; o.total++; if (e === "baja") o.baja++; else { o.activa++; if (e === "permiso") o.permiso++; else o.trabaja++; } } return o; }
+// árbol sección › departamento › puesto de una lista de personas
+function arbolPlantilla(L){
+  const ords = ["M.O.E","M.O.I","M.O.D"], out = [];
+  const clases = [...ords.filter(k => L.some(p => p.clasificacion === k)), ...(L.some(p => !ords.includes(p.clasificacion)) ? [null] : [])];
+  const orden = (a, b) => !a ? 1 : !b ? -1 : a.localeCompare(b, "es");
+  for (const k of clases){
+    const Pk = L.filter(p => k ? p.clasificacion === k : !ords.includes(p.clasificacion)); out.push({ nivel:0, txt:k ? CLAS_LAB[k] : "Sin sección", P:Pk });
+    for (const dep of [...new Set(Pk.map(p => p.departamento || ""))].sort(orden)){ const Pd = Pk.filter(p => (p.departamento || "") === dep); out.push({ nivel:1, txt:dep || "Sin departamento", P:Pd });
+      for (const pu of [...new Set(Pd.map(p => p.puesto || ""))].sort(orden)) out.push({ nivel:2, txt:pu || "Sin puesto", P:Pd.filter(p => (p.puesto || "") === pu) }); }
+  }
+  return out;
+}
 function tabPlantilla(box){
-  const D = R.data, F = R.fp || (R.fp = { vinculo:"", trab:true });
+  const D = R.data, F = R.fp || (R.fp = { vinculo:"", trab:true, dia:hoyKey });
   const c = el("div","ctrl");
+  const fd = el("div","fld"); const di = el("input"); di.type = "date"; di.value = F.dia; di.addEventListener("change", () => { F.dia = di.value || hoyKey; render(); }); fd.append(el("span",null,"Día"), di); c.append(fd);
   const s = el("div","seg"); for (const [k,l] of [["","Todos"],["Nómina","Nómina"],["ETT","ETT"]]){ const b = el("button",null,l); b.type = "button"; b.setAttribute("aria-pressed", String(F.vinculo === k)); b.addEventListener("click", () => { F.vinculo = k; render(); }); s.append(b); }
   const d = el("div","fld"); d.append(el("span",null,"Vínculo"), s); c.append(d);
   const lb = el("label","chk"); const cb = el("input"); cb.type = "checkbox"; cb.checked = F.trab; cb.addEventListener("change", () => { F.trab = cb.checked; render(); }); lb.append(cb, " Mostrar trabajadores"); c.append(lb); box.append(c);
-  const L = D.personas.filter(p => activa(p) && (!F.vinculo || p.tipo_vinculo === F.vinculo));
-  const deBaja = p => { const st = situacion(p); return st.a && st.a.tipo !== "Vacaciones" ? st : null; };
-  const cuenta = P => { const b = P.filter(deBaja).length; return [P.length, P.length - b, b]; };
-  const tw = el("div","tblwrap"); const t = el("table","tbl"); const hr = el("tr"); for (const [h, n] of [["Clasificación",0],["Departamento",0],["Puesto",0],["Trabajador",0],["Total personas",1],["Activas",1],["Bajas",1]]) hr.append(el("th", n ? "n" : null, h)); t.append(el("thead")); t.tHead.append(hr);
+  const L = D.personas.filter(p => (!F.vinculo || p.tipo_vinculo === F.vinculo) && estadoDia(p, F.dia).e !== "fuera");
+  const tw = el("div","tblwrap"); const t = el("table","tbl"); const hr = el("tr"); for (const h of ["Sección","Departamento","Puesto","Trabajador"]) hr.append(el("th",null,h)); for (const [, h] of MEDIDAS_PL) hr.append(el("th","n",h)); t.append(el("thead")); t.tHead.append(hr);
   const tb = el("tbody");
-  const fila = (cls, cols, nums, estilo) => { const tr = el("tr", cls); for (const x of cols) tr.append(el("td",null,x)); nums.forEach((v, i) => { const x = el("td","n", v === "" ? "" : String(v)); if (i === 2 && v) x.style.color = "var(--red)"; tr.append(x); }); if (estilo) tr.style.cssText = estilo; tb.append(tr); return tr; };
-  const ords = ["M.O.E","M.O.I","M.O.D"]; const clases = [...ords.filter(k => L.some(p => p.clasificacion === k)), ...(L.some(p => !ords.includes(p.clasificacion)) ? [null] : [])];
-  for (const k of clases){
-    const Pk = L.filter(p => k ? p.clasificacion === k : !ords.includes(p.clasificacion));
-    fila("wk", [k || "Sin clasificar", "", "", ""], cuenta(Pk));
-    for (const dep of [...new Set(Pk.map(p => p.departamento || ""))].sort((a,b) => !a ? 1 : !b ? -1 : a.localeCompare(b, "es"))){
-      const Pd = Pk.filter(p => (p.departamento || "") === dep);
-      fila(null, ["", dep || "Sin departamento", "", ""], cuenta(Pd), "font-weight:700;background:var(--surface-2)");
-      for (const pu of [...new Set(Pd.map(p => p.puesto || ""))].sort((a,b) => !a ? 1 : !b ? -1 : a.localeCompare(b, "es"))){
-        const Pp = Pd.filter(p => (p.puesto || "") === pu);
-        fila(null, ["", "", pu || "Sin puesto", ""], cuenta(Pp), "font-weight:600");
-        if (F.trab) for (const p of Pp.sort((a,b) => a.nombre.localeCompare(b.nombre, "es"))){ const b = deBaja(p);
-          const tr = fila(null, ["", "", "", p.nombre + (b ? ` (${b.t})` : "") + (p.tipo_vinculo === "ETT" ? " · ETT" : "")], [1, b ? 0 : 1, b ? 1 : 0]); tr.style.cursor = "pointer"; tr.title = "Abrir la ficha"; tr.addEventListener("click", () => ficha(p)); }
-      }
-    }
+  const fila = (cols, o, estilo, cls) => { const tr = el("tr", cls); for (const x of cols) tr.append(el("td",null,x)); for (const [k] of MEDIDAS_PL){ const x = el("td","n", String(o[k])); if (k === "baja" && o[k]) x.style.color = "var(--red)"; tr.append(x); } if (estilo) tr.style.cssText = estilo; tb.append(tr); return tr; };
+  for (const n of arbolPlantilla(L)){
+    const cols = ["","","",""]; cols[n.nivel] = n.txt;
+    fila(cols, cuentaDia(n.P, F.dia), n.nivel === 1 ? "font-weight:700;background:var(--surface-2)" : n.nivel === 2 ? "font-weight:600" : null, n.nivel === 0 ? "wk" : null);
+    if (n.nivel === 2 && F.trab) for (const p of n.P.sort((a,b) => a.nombre.localeCompare(b.nombre, "es"))){ const st = estadoDia(p, F.dia);
+      const tr = fila(["","","", p.nombre + (st.t ? ` (${st.t})` : "") + (p.tipo_vinculo === "ETT" ? " · ETT" : "")], cuentaDia([p], F.dia)); tr.style.cursor = "pointer"; tr.title = "Abrir la ficha"; tr.addEventListener("click", () => ficha(p)); }
   }
-  if (!L.length){ const tr = el("tr"); const x = el("td","empty","No hay personas."); x.colSpan = 7; tr.append(x); tb.append(tr); }
-  else fila("wk", ["Total", "", "", ""], cuenta(L));
+  if (!L.length){ const tr = el("tr"); const x = el("td","empty","No hay personas."); x.colSpan = 9; tr.append(x); tb.append(tr); }
+  else fila(["Total","","",""], cuentaDia(L, F.dia), null, "wk");
   t.append(tb); tw.append(t); box.append(tw);
-  box.append(el("p","hint","Personas en plantilla hoy (sin las que tienen baja definitiva). «Activas»: trabajando hoy (también si están de vacaciones). «Bajas»: de baja hoy por IT, excedencia, permiso u otra ausencia registrada en su ficha. Pulsa un trabajador para abrir su ficha."));
+  box.append(el("p","hint",`Situación el ${fec(F.dia)}. Total personas: dadas de alta en la empresa (sin baja definitiva) = Bajas + Activas. Bajas: IT, excedencia u otra ausencia. Activas: el resto; de ellas, Permisos son las que ese día tienen un permiso (por días o por horas) o están de vacaciones, y Empleados trabajando las demás. Pulsa un trabajador para abrir su ficha.`));
 }
 
-// Desplegable de departamentos agrupados por clasificación
+// ---------- Evolución de la plantilla por meses o semanas ----------
+function tabEvolucion(box){
+  const D = R.data, hoy = hoyKey;
+  const F = R.fv || (R.fv = { escala:"mes", desde:null, hasta:hoy.slice(0,7), medida:"total", vinculo:"" });
+  if (!F.desde){ const d = new Date(hoy + "T00:00:00Z"); d.setUTCMonth(d.getUTCMonth() - 11); F.desde = d.toISOString().slice(0,7); }
+  const c = el("div","ctrl"); const fl = (lab, n) => { const d = el("div","fld"); d.append(el("span",null,lab), n); return d; };
+  const seg = (key, opts) => { const s = el("div","seg"); for (const [k,l] of opts){ const b = el("button",null,l); b.type = "button"; b.setAttribute("aria-pressed", String(F[key] === k)); b.addEventListener("click", () => { F[key] = k; render(); }); s.append(b); } return s; };
+  const iD = el("input"); iD.type = "month"; iD.value = F.desde; iD.addEventListener("change", () => { if (iD.value) { F.desde = iD.value; render(); } });
+  const iH = el("input"); iH.type = "month"; iH.value = F.hasta; iH.addEventListener("change", () => { if (iH.value) { F.hasta = iH.value; render(); } });
+  const sm = el("select"); for (const [k,l] of MEDIDAS_PL) sm.append(new Option(l, k)); sm.value = F.medida; sm.addEventListener("change", () => { F.medida = sm.value; render(); });
+  c.append(fl("Escala", seg("escala",[["mes","Meses"],["semana","Semanas"]])), fl("Desde", iD), fl("Hasta", iH), fl("Dato", sm), fl("Vínculo", seg("vinculo",[["","Todos"],["Nómina","Nómina"],["ETT","ETT"]])));
+  box.append(c);
+  // periodos: cada uno se mide en su último día (o hoy si aún no ha terminado)
+  const ini = F.desde <= F.hasta ? F.desde : F.hasta, fin = F.desde <= F.hasta ? F.hasta : F.desde, per = [];
+  if (F.escala === "mes"){ for (let k = ini + "-01"; k.slice(0,7) <= fin; k = sigMes(k)){ const f = finMes(k); per.push({ lab:mesLab(k), dia: f > hoy ? hoy : f, futuro: k > hoy }); } }
+  else { const d = new Date(ini + "-01T00:00:00Z"); d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7)); const lim = finMes(fin + "-01");
+    for (; d.toISOString().slice(0,10) <= lim; d.setUTCDate(d.getUTCDate() + 7)){ const lu = d.toISOString().slice(0,10), dom = new Date(d); dom.setUTCDate(dom.getUTCDate() + 6); const f = dom.toISOString().slice(0,10);
+      const j = new Date(d); j.setUTCDate(j.getUTCDate() + 3); const y0 = new Date(Date.UTC(j.getUTCFullYear(), 0, 1)); const sem = Math.ceil(((j - y0) / 86400000 + 1) / 7);
+      per.push({ lab:`S${sem} · ${lu.slice(8,10)}/${lu.slice(5,7)}`, dia: f > hoy ? hoy : f, futuro: lu > hoy }); } }
+  const P = per.filter(x => !x.futuro);
+  if (P.length > 160){ box.append(el("div","card empty","Demasiados periodos: acorta el rango de fechas.")); return; }
+  const L = D.personas.filter(p => !F.vinculo || p.tipo_vinculo === F.vinculo);
+  const vivos = L.filter(p => P.some(x => estadoDia(p, x.dia).e !== "fuera"));
+  const tw = el("div","tblwrap"); const t = el("table","tbl fija"); const hr = el("tr"); hr.append(el("th",null,"Sección › departamento › puesto")); for (const x of P) hr.append(el("th","n",x.lab)); t.append(el("thead")); t.tHead.append(hr);
+  const tb = el("tbody");
+  const fila = (txt, Pp, nivel) => { const tr = el("tr", nivel === 0 || nivel === -1 ? "wk" : null); const td = el("td",null,txt); td.style.paddingLeft = (10 + Math.max(0, nivel) * 18) + "px"; if (nivel === 1) td.style.fontWeight = "700"; if (nivel === 2) td.style.fontWeight = "500"; tr.append(td);
+    for (const x of P){ const v = cuentaDia(Pp, x.dia)[F.medida]; tr.append(el("td","n", v ? String(v) : "")); } tb.append(tr); };
+  for (const n of arbolPlantilla(vivos)) fila(n.txt, n.P, n.nivel);
+  if (vivos.length) fila("Total", vivos, -1); else { const tr = el("tr"); const x = el("td","empty","No hay personas en ese periodo."); x.colSpan = P.length + 1; tr.append(x); tb.append(tr); }
+  t.append(tb); tw.append(t); box.append(tw);
+  box.append(el("p","hint",`${MEDIDAS_PL.find(m => m[0] === F.medida)[1]} al final de cada ${F.escala === "mes" ? "mes" : "semana"} (el periodo en curso, a día de hoy), según las fechas de alta y baja definitiva, las ausencias y los permisos de cada ficha. La persona se cuenta en su sección, departamento y puesto actuales. Las fichas sin fecha de alta cuentan en todo el periodo.`));
+}
+
+// Desplegable de departamentos agrupados por sección
 function selectDepartamento(val){
   const s = el("select"); s.append(new Option("Departamento…","")); const D = R.data;
-  for (const [k, lab] of [["M.O.E",CLAS_LAB["M.O.E"]],["M.O.I",CLAS_LAB["M.O.I"]],["M.O.D",CLAS_LAB["M.O.D"]],[null,"Sin clasificación"]]){
+  for (const [k, lab] of [["M.O.E",CLAS_LAB["M.O.E"]],["M.O.I",CLAS_LAB["M.O.I"]],["M.O.D",CLAS_LAB["M.O.D"]],[null,"Sin sección"]]){
     const ds = D.deps.filter(d => (d.clasificacion || null) === k).sort((a,b) => a.nombre.localeCompare(b.nombre, "es")); if (!ds.length) continue;
     const og = document.createElement("optgroup"); og.label = lab; for (const d of ds) og.append(new Option(d.nombre, d.nombre)); s.append(og); }
   s.value = val || ""; return s;
@@ -733,7 +785,7 @@ function editarDepartamento(dep){
   f.append(el("h2",null,"Departamento"));
   const n = el("input"); n.value = dep.nombre; const c = el("select"); c.append(new Option("—","")); for (const k of ["M.O.E","M.O.I","M.O.D"]) c.append(new Option(CLAS_LAB[k], k)); c.value = dep.clasificacion || "";
   const fld = (lab, node) => { const x = el("div","f"); x.append(el("label",null,lab), node); return x; };
-  f.append(fld("Nombre", n), fld("Clasificación", c), el("p","hint","Si cambias la clasificación, sus puestos y las personas de esos puestos pasan a la nueva clasificación."));
+  f.append(fld("Nombre", n), fld("Sección", c), el("p","hint","Si cambias la sección, sus puestos y las personas de esos puestos pasan a la nueva sección."));
   const acts = el("div","actions"); const cn = el("button","btn","Cancelar"); cn.type = "button"; cn.addEventListener("click", () => dlg.close()); const ok = el("button","btn primary","Guardar"); acts.append(cn, ok); f.append(acts);
   f.addEventListener("submit", async e => { e.preventDefault(); const nn = n.value.trim(); if (!nn) return n.focus();
     const r = await sch().from("departamentos").update({ nombre:nn, clasificacion:c.value || null }).eq("nombre", dep.nombre);
@@ -748,7 +800,7 @@ function editarPuesto(pu){
   const a = el("input"); a.type = "checkbox"; a.checked = pu.activo;
   const fld = (lab, node) => { const x = el("div","f"); x.append(el("label",null,lab), node); return x; };
   const la = el("label","chk"); la.append(a, " Activo (se puede asignar)");
-  f.append(fld("Nombre", n), fld("Departamento", d), la, el("p","hint","El puesto toma la clasificación de su departamento. Los cambios se aplican a todas las personas de este puesto."));
+  f.append(fld("Nombre", n), fld("Departamento", d), la, el("p","hint","El puesto toma la sección de su departamento. Los cambios se aplican a todas las personas de este puesto."));
   const acts = el("div","actions"); const cn = el("button","btn","Cancelar"); cn.type = "button"; cn.addEventListener("click", () => dlg.close()); const ok = el("button","btn primary","Guardar"); acts.append(cn, ok); f.append(acts);
   f.addEventListener("submit", async e => { e.preventDefault(); const dd = R.data.deps.find(x => x.nombre === d.value); const r = await sch().from("puestos").update({ nombre:n.value.trim(), departamento:d.value, clasificacion:(dd && dd.clasificacion) || pu.clasificacion, activo:a.checked }).eq("id", pu.id);
     if (r.error){ toast("No se ha podido guardar"); return; } dlg.close(); toast("Puesto guardado"); recargar(); });
@@ -769,7 +821,7 @@ function tarjetaAusencias(p, ed, cerrarFicha){
   let edit = null; const t = el("select"); for (const x of TIPOS_AUS) t.append(new Option(x, x)); const i = dIn(hoyKey), f = dIn(""), o = el("input"); o.placeholder = "Observaciones"; const rv = dIn("");
   const frv = fld("Próxima revisión (IT)", rv); const syncT = () => { frv.style.display = t.value.startsWith("IT") ? "" : "none"; }; t.addEventListener("change", syncT);
   const tit = el("b",null,"Nueva ausencia"), bAdd = el("button","btn small primary","Añadir ausencia"), bCan = el("button","btn small","Cancelar edición"); bAdd.type = "button"; bCan.type = "button"; bCan.hidden = true;
-  const cargarForm = a => { edit = a || null; t.value = a ? a.tipo : TIPOS_AUS[0]; i.value = a ? a.fecha_inicio : hoyKey; f.value = a && a.fecha_fin ? a.fecha_fin : ""; o.value = a ? a.observaciones || "" : ""; rv.value = a && a.proxima_revision ? a.proxima_revision : "";
+  const cargarForm = a => { edit = a || null; if (a && ![...t.options].some(o => o.value === a.tipo)) t.append(new Option(a.tipo, a.tipo)); t.value = a ? a.tipo : TIPOS_AUS[0]; i.value = a ? a.fecha_inicio : hoyKey; f.value = a && a.fecha_fin ? a.fecha_fin : ""; o.value = a ? a.observaciones || "" : ""; rv.value = a && a.proxima_revision ? a.proxima_revision : "";
     tit.textContent = a ? `Editar: ${a.tipo} desde ${fec(a.fecha_inicio)}` : "Nueva ausencia"; bAdd.textContent = a ? "Guardar cambios" : "Añadir ausencia"; bCan.hidden = !a; syncT(); };
   // lista
   if (A.length){ const ul = el("ul"); for (const a of A){ const li = el("li"); li.style.margin = "4px 0";
@@ -803,6 +855,42 @@ function tarjetaAusencias(p, ed, cerrarFicha){
     const bs = el("div"); bs.style.cssText = "display:flex;gap:8px"; bs.append(bAdd, bCan);
     const fb = el("div"); fb.style.cssText = "border-top:1px solid var(--line);margin-top:8px;padding-top:8px"; fb.append(tit, g, bs, el("p","hint","Para terminar una baja o ausencia usa «Finalizar» con la fecha en que se reincorpora: desde ese día la persona sale como Activa. La baja definitiva en la empresa se indica con la fecha y el motivo de baja de la ficha."));
     c.append(fb); cargarForm(null); }
+  return c;
+}
+// ---------- Permisos (por días completos o por horas) ----------
+function tarjetaPermisos(p, ed, cerrarFicha){
+  const D = R.data, A = (D.perm || []).filter(x => x.persona_id === p.id).sort((a,b) => a.fecha_inicio < b.fecha_inicio ? 1 : -1);
+  const c = el("div","card"); c.style.margin = "4px 0 12px"; c.append(el("b",null,"Permisos"));
+  const fld = (lab, node) => { const x = el("div","f"); x.append(el("label",null,lab), node); return x; };
+  const nf = v => String(Math.round(v * 100) / 100).replace(".", ",");
+  const diasN = (a, b) => Math.round((Date.parse(b) - Date.parse(a)) / 86400000) + 1;
+  const guardar = async (q, ok) => { const r = await q; if (r.error){ console.error(r.error); toast("No se ha podido guardar el permiso"); return; } toast(ok); cerrarFicha(); await recargarFicha(p); };
+  if (A.length){ const ul = el("ul"); for (const a of A){ const li = el("li");
+      const cuando = a.por_horas ? `${fec(a.fecha_inicio)}${a.hora_inicio ? ` de ${a.hora_inicio.slice(0,5)} a ${(a.hora_fin || "").slice(0,5)}` : ""} · ${nf(+a.horas || 0)} h` : `${fec(a.fecha_inicio)}${a.fecha_fin && a.fecha_fin !== a.fecha_inicio ? " – " + fec(a.fecha_fin) : ""} · ${diasN(a.fecha_inicio, a.fecha_fin || a.fecha_inicio)} día${diasN(a.fecha_inicio, a.fecha_fin || a.fecha_inicio) === 1 ? "" : "s"}`;
+      li.append(`${a.tipo}: ${cuando}${a.observaciones ? " · " + a.observaciones : ""} `);
+      if (ed){ const x = el("button","btn small","Eliminar"); x.type = "button"; x.addEventListener("click", () => { if (!confirm("¿Eliminar este permiso?")) return; guardar(sch().from("permisos").delete().eq("id", a.id), "Permiso eliminado"); }); li.append(x); }
+      ul.append(li); } c.append(ul); }
+  else c.append(el("p","hint","Sin permisos registrados."));
+  if (ed){
+    const t = el("select"); for (const x of TIPOS_PERM) t.append(new Option(x, x));
+    const modo = el("select"); modo.append(new Option("Días completos","dias"), new Option("Por horas","horas"));
+    const d1 = el("input"); d1.type = "date"; d1.value = hoyKey; const d2 = el("input"); d2.type = "date";
+    const h1 = el("input"); h1.type = "time"; const h2 = el("input"); h2.type = "time"; const hn = el("input"); hn.type = "number"; hn.step = "0.25"; hn.min = "0"; hn.placeholder = "Se calcula con las horas";
+    const o = el("input"); o.placeholder = "Observaciones";
+    const fD2 = fld("Hasta (vacío = un solo día)", d2), fH1 = fld("Desde la hora", h1), fH2 = fld("Hasta la hora", h2), fHn = fld("Horas", hn), lD1 = fld("Desde", d1);
+    const calcH = () => { if (h1.value && h2.value && h2.value > h1.value){ const [a1, b1] = h1.value.split(":").map(Number), [a2, b2] = h2.value.split(":").map(Number); hn.value = String(Math.round(((a2 * 60 + b2) - (a1 * 60 + b1)) / 15) * 15 / 60); } };
+    h1.addEventListener("change", calcH); h2.addEventListener("change", calcH);
+    const sync = () => { const hrs = modo.value === "horas"; fD2.style.display = hrs ? "none" : ""; for (const x of [fH1, fH2, fHn]) x.style.display = hrs ? "" : "none"; lD1.querySelector("label").textContent = hrs ? "Día" : "Desde"; };
+    modo.addEventListener("change", sync);
+    const g = el("div","f2"); g.append(fld("Tipo de permiso", t), fld("Se cuenta por", modo), lD1, fD2, fH1, fH2, fHn, fld("Observaciones", o)); sync();
+    const b = el("button","btn small primary","Añadir permiso"); b.type = "button";
+    b.addEventListener("click", () => { if (!d1.value) return d1.focus(); const hrs = modo.value === "horas";
+      if (!hrs && d2.value && d2.value < d1.value) return toast("La fecha final es anterior a la inicial");
+      if (hrs && !(+hn.value > 0)) return toast("Pon las horas del permiso (o la hora de inicio y fin)");
+      const row = { persona_id:p.id, tipo:t.value, fecha_inicio:d1.value, fecha_fin: hrs ? d1.value : (d2.value || d1.value), por_horas:hrs, hora_inicio: hrs && h1.value ? h1.value : null, hora_fin: hrs && h2.value ? h2.value : null, horas: hrs ? +hn.value : null, observaciones:o.value.trim() || null };
+      guardar(sch().from("permisos").insert(row), "Permiso registrado"); });
+    const fb = el("div"); fb.style.cssText = "border-top:1px solid var(--line);margin-top:8px;padding-top:8px"; fb.append(el("b",null,"Nuevo permiso"), g, b, el("p","hint","El permiso por días cubre días completos; el permiso por horas, parte de una jornada. En «Número de personas por dpto.» la persona cuenta como activa con permiso ese día."));
+    c.append(fb); }
   return c;
 }
 async function recargarFicha(p){ R.data = null; await cargar(); const q = R.data.personas.find(x => x.id === p.id); if (q) ficha(q); }
@@ -869,10 +957,10 @@ function exportar(){
   const A = [["Mes","Personas nómina","Nómina ordinaria", ...(R.indem ? ["Indemnizaciones"] : []),"Paga extra verano (prorrata)","Total nómina","ETT sin IVA","Coste total","Personas ETT"]];
   for (const s of S) A.push([mesLab(s.m), s.pers, Math.round(s.ord), ...(R.indem ? [Math.round(s.ind)] : []), Math.round(s.ext), Math.round(s.nom), Math.round(s.ett), Math.round(s.tot), s.ettN]);
   XLSX.utils.book_append_sheet(wb, sheet(A, [10,10,14,14,12,14,12,14,8,10]), "Resumen");
-  const B = [["Código","Nombre","Vínculo","Empresa ETT","Clasificación","Grupo profesional","Departamento","Puesto","Categoría","Contrato","Alta","Baja","Motivo baja","Pendiente","Mes de referencia","Bruto anual","Coste empresa anual","SS trabajador anual","IRPF anual","Líquido anual","Líquido mensual"]];
+  const B = [["Código","Nombre","Vínculo","Empresa ETT","Sección","Grupo profesional","Departamento","Puesto","Categoría","Contrato","Alta","Baja","Motivo baja","Pendiente","Mes de referencia","Bruto anual","Coste empresa anual","SS trabajador anual","IRPF anual","Líquido anual","Líquido mensual"]];
   for (const p of R.data.personas) B.push([p.codigo, p.nombre, p.tipo_vinculo, p.empresa_ett || "", p.clasificacion || "", p.grupo_profesional || "", p.departamento || "", p.puesto || "", p.categoria || "", p.tipo_contrato || "", p.fecha_alta || "", p.fecha_baja || "", p.motivo_baja || "", pendientes(p).join(", "), ...(r => r ? [mesLab(r.ref.periodo), Math.round(r.a.bruto), Math.round(r.a.coste), Math.round(r.a.ss), Math.round(r.a.irpf), Math.round(r.a.liq), Math.round(r.a.liq / 12)] : [])(retribucion(p.codigo))]);
   XLSX.utils.book_append_sheet(wb, sheet(B, [9,32,9,12,10,14,20,18,14,22,11,11,20,30,10,14,14,14,12,14,12]), "Personas");
-  const C = [["Código","Nombre","Clasificación","Departamento", ...M.map(mesLab), "Total"]];
+  const C = [["Código","Nombre","Sección","Departamento", ...M.map(mesLab), "Total"]];
   const by = new Map(); for (const n of R.data.nomina) if (M.includes(n.periodo)){ const x = by.get(n.codigo) || {}; x[n.periodo] = costeDev(n); by.set(n.codigo, x); }
   for (const [cod, x] of by){ const p = R.data.porCodigo.get(cod) || {}; C.push([cod, p.nombre || "", p.clasificacion || "", p.departamento || "", ...M.map(m => Math.round((x[m] || 0) * 100) / 100), Math.round(sum(M, m => x[m]) * 100) / 100]); }
   XLSX.utils.book_append_sheet(wb, sheet(C, [9,32,10,20, ...M.map(() => 11), 12]), "Coste por empleado");
