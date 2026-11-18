@@ -14,7 +14,7 @@ const MOTIVOS = ["Despido","Baja voluntaria","Fin de contrato","Jubilación","Fi
 const OBLIG = [["clasificacion","Clasificación"],["departamento","Departamento"],["tipo_contrato","Tipo de contrato"],["fecha_alta","Fecha de alta"]];
 
 const R = { tab:"resumen", tabD:"personas", data:null, loading:false, anio:null, agr:"departamento", repartirEtt:false, indem:true, abiertos:new Set(),
-  f:{ estado:"activos", vinculo:"", q:"", incompletas:false }, fe:{ q:"", dep:"" }, msg:null };
+  f:{ estado:"activos", vinculo:"", q:"", incompletas:false, soloIT:false, col:{} }, fe:{ q:"", dep:"" }, msg:null };
 let charts = [];
 
 const sch = () => sb.schema("rrhh");
@@ -287,27 +287,66 @@ function tabPersonas(box){
   if (puede()){ const a = el("div","acc"); const nb = el("button","btn primary","Nueva persona"); nb.addEventListener("click", () => ficha(null)); a.append(nb); c.append(a); }
   box.append(c);
   const qq = F.q.trim().toLowerCase();
-  const L = D.personas.filter(p => (F.estado === "todos" || (F.estado === "activos" ? activa(p) : !activa(p))) && (!F.vinculo || p.tipo_vinculo === F.vinculo)
-    && (!F.incompletas || pendientes(p).length) && (!qq || `${p.nombre} ${p.codigo} ${p.puesto || ""} ${p.categoria || ""} ${p.departamento || ""}`.toLowerCase().includes(qq)))
+  const L0 = D.personas.filter(p => (F.estado === "todos" || (F.estado === "activos" ? activa(p) : !activa(p))) && (!F.vinculo || p.tipo_vinculo === F.vinculo)
+    && (!F.incompletas || pendientes(p).length) && (!F.soloIT || itActual(p)) && (!qq || `${p.nombre} ${p.codigo} ${p.puesto || ""} ${p.categoria || ""} ${p.departamento || ""}`.toLowerCase().includes(qq)))
     .sort((a,b) => (a.tipo_vinculo > b.tipo_vinculo ? 1 : a.tipo_vinculo < b.tipo_vinculo ? -1 : a.codigo < b.codigo ? -1 : 1));
+  // KPIs
   const k = el("div","kpis"); const act = D.personas.filter(activa); const kp = (t, v, s) => { const d = el("div","kpi"); d.append(el("small",null,t), el("b",null,v)); if (s) d.append(el("span","delta",s)); return d; };
+  const enIT = act.map(p => [p, itActual(p)]).filter(x => x[1]), revV = enIT.filter(([, a]) => a.proxima_revision && a.proxima_revision < hoyKey).length;
+  const kIT = kp("Bajas por IT", String(enIT.length), enIT.length ? `${enIT.filter(([, a]) => a.tipo === "IT enfermedad común").length} enfermedad común · ${enIT.filter(([, a]) => a.tipo === "IT accidente de trabajo").length} accidente${revV ? ` · ${revV} revisión vencida` : ""}` : "nadie de baja por IT hoy");
+  kIT.style.cursor = "pointer"; kIT.title = F.soloIT ? "Pulsa para ver todas las personas" : "Pulsa para ver solo las personas de baja por IT";
+  if (F.soloIT) kIT.style.outline = "2px solid var(--red)"; if (enIT.length) kIT.querySelector("b").style.color = "var(--red)";
+  kIT.addEventListener("click", () => { F.soloIT = !F.soloIT; render(); });
   k.append(kp("Personas activas", String(act.length), `${act.filter(p => p.tipo_vinculo === "Nómina").length} en nómina · ${act.filter(p => p.tipo_vinculo === "ETT").length} de ETT`),
     kp("Fichas incompletas", String(act.filter(p => pendientes(p).length).length), "faltan datos obligatorios"),
-    kp("% temporal", pctf(act.length ? act.filter(p => p.tipo_vinculo === "ETT" || p.tipo_contrato === "Temporal").length / act.length : null), "ETT + contrato temporal"));
+    kp("% temporal", pctf(act.length ? act.filter(p => p.tipo_vinculo === "ETT" || p.tipo_contrato === "Temporal").length / act.length : null), "ETT + contrato temporal"), kIT);
   box.append(k);
   const venc = act.filter(p => contratoVencido(p));
   if (venc.length){ const w = el("p","hint", `Contrato de ETT vencido sin actualizar (${venc.length}): ${venc.map(p => p.nombre).join(", ")}. Abre la ficha y añade la prórroga o pon la baja definitiva.`); w.style.color = "var(--red)"; box.append(w); }
-  const tw = el("div","tblwrap"); const t = el("table","tbl"); const hr = el("tr"); for (const h of ["Código","Nombre","Situación","Vínculo","Clasif.","Grupo prof.","Departamento","Puesto / categoría","Contrato","Alta","Baja definitiva","Inicio contrato ETT","Fin contrato ETT","Pendiente"]) hr.append(el("th",null,h)); t.append(el("thead")); t.tHead.append(hr);
+  // columnas: valor para filtrar y celda
+  const td = (t, css) => { const x = el("td",null,t); if (css) x.style.cssText = css; return x; };
+  const COLS = [
+    { h:"Código", v:p => p.codigo, f:"txt" },
+    { h:"Nombre", v:p => p.nombre, f:"txt" },
+    { h:"Situación", v:p => situacion(p).t, f:"sel", c:p => { const st = situacion(p), x = el("td"); x.append(el("span","tag " + st.cls, st.t)); return x; } },
+    { h:"Vínculo", v:p => p.tipo_vinculo + (p.empresa_ett ? " · " + p.empresa_ett : ""), f:"sel" },
+    { h:"Clasif.", v:p => p.clasificacion || "", f:"sel" },
+    { h:"Grupo prof.", v:p => p.grupo_profesional || "", f:"sel" },
+    { h:"Departamento", v:p => p.departamento || "", f:"sel" },
+    { h:"Puesto / categoría", v:p => p.puesto || p.categoria || "", f:"sel" },
+    { h:"Contrato", v:p => p.tipo_contrato || "", f:"sel" },
+    { h:"Próxima revisión IT", v:p => { const a = itActual(p); return a && a.proxima_revision ? fec(a.proxima_revision) : ""; }, f:"txt",
+      c:p => { const a = itActual(p); if (!a) return el("td"); if (!a.proxima_revision){ const x = td("sin fecha"); x.style.color = "var(--ink-3)"; return x; } const x = td(fec(a.proxima_revision)); if (a.proxima_revision < hoyKey){ x.style.color = "var(--red)"; x.style.fontWeight = "700"; x.title = "Revisión vencida: actualiza la fecha en la ficha"; } return x; } },
+    { h:"Alta", v:p => fec(p.fecha_alta), f:"txt" },
+    { h:"Baja definitiva", v:p => fec(p.fecha_baja) + (p.motivo_baja ? ` (${p.motivo_baja})` : ""), f:"txt" },
+    { h:"Inicio contrato ETT", v:p => { const c = p.tipo_vinculo === "ETT" ? contratoActual(p) : null; return c ? fec(c.fecha_inicio) : ""; }, f:"txt", c:p => celdasContrato(p)[0] },
+    { h:"Fin contrato ETT", v:p => { const c = p.tipo_vinculo === "ETT" ? contratoActual(p) : null; return c ? (c.fecha_fin ? fec(c.fecha_fin) : "sin fin") : ""; }, f:"txt", c:p => celdasContrato(p)[1] },
+    { h:"Pendiente", v:p => pendientes(p).join(", "), f:"txt", c:p => { const x = el("td"); for (const y of pendientes(p)) x.append(el("span","tag warn",y), " "); return x; } },
+  ];
+  const FC = F.col, activos = COLS.filter(c => FC[c.h]);
+  const VACIO = "\u0000"; const pasa = (p, salvo) => activos.every(c => c === salvo || (c.f === "sel" ? c.v(p) === (FC[c.h] === VACIO ? "" : FC[c.h]) : c.v(p).toLowerCase().includes(FC[c.h].toLowerCase())));
+  const L = L0.filter(p => pasa(p));
+  const tw = el("div","tblwrap"); const t = el("table","tbl"); const hr = el("tr"); for (const c of COLS) hr.append(el("th",null,c.h));
+  const fr = el("tr","filtros");
+  COLS.forEach((c, i) => { const th = el("th"); let inp;
+    if (c.f === "sel"){ inp = el("select"); inp.append(new Option("Todos","")); const vals = [...new Set(L0.filter(p => pasa(p, c)).map(c.v))].sort((a, b) => a.localeCompare(b, "es")).map(v => v === "" ? VACIO : v); if (FC[c.h] && !vals.includes(FC[c.h])) vals.unshift(FC[c.h]); for (const v of vals) inp.append(new Option(v === VACIO ? "(vacío)" : v, v)); inp.value = FC[c.h] || "";
+      inp.addEventListener("change", () => { if (inp.value === "") delete FC[c.h]; else FC[c.h] = inp.value; render(); }); }
+    else { inp = el("input"); inp.type = "search"; inp.placeholder = "Filtrar"; inp.value = FC[c.h] || ""; inp.addEventListener("input", () => { if (inp.value) FC[c.h] = inp.value; else delete FC[c.h]; render(); }); }
+    inp.dataset.k = "rr-col-" + i; if (FC[c.h]) inp.classList.add("activo"); th.append(inp); fr.append(th); });
+  t.append(el("thead")); t.tHead.append(hr, fr);
   const tb = el("tbody");
   for (const p of L){ const tr = el("tr", activa(p) ? null : "paid"); tr.style.cursor = "pointer"; tr.addEventListener("click", () => ficha(p));
-    const pend = pendientes(p); const tp = el("td"); for (const x of pend) { tp.append(el("span","tag warn",x), " "); }
-    const st = situacion(p), tst = el("td"); tst.append(el("span","tag " + st.cls, st.t));
-    tr.append(el("td",null,p.codigo), el("td",null,p.nombre), tst, el("td",null,p.tipo_vinculo + (p.empresa_ett ? " · " + p.empresa_ett : "")), el("td",null,p.clasificacion || ""), el("td",null,p.grupo_profesional || ""), el("td",null,p.departamento || ""), el("td",null,p.puesto || p.categoria || ""), el("td",null,p.tipo_contrato || ""), el("td",null,fec(p.fecha_alta)), el("td",null,fec(p.fecha_baja) + (p.motivo_baja ? ` (${p.motivo_baja})` : "")), ...celdasContrato(p), tp);
+    for (const c of COLS) tr.append(c.c ? c.c(p) : el("td",null,c.v(p)));
     tb.append(tr); }
-  if (!L.length){ const tr = el("tr"); const td = el("td","empty","No hay personas con estos filtros."); td.colSpan = 14; tr.append(td); tb.append(tr); }
+  if (!L.length){ const tr = el("tr"); const x = el("td","empty","No hay personas con estos filtros."); x.colSpan = COLS.length; tr.append(x); tb.append(tr); }
   t.append(tb); tw.append(t); box.append(tw);
+  if (activos.length || F.soloIT){ const lim = el("p","hint"); lim.append(`${L.length} de ${L0.length} personas con los filtros de columna${F.soloIT ? " (solo bajas por IT)" : ""}. `);
+    const b = el("button","btn small","Quitar filtros de columna"); b.type = "button"; b.addEventListener("click", () => { F.col = {}; F.soloIT = false; render(); }); lim.append(b); box.append(lim); }
   box.append(el("p","hint","Pulsa una persona para ver o editar su ficha. Para guardar basta con el nombre y el código (y la empresa si es de ETT); el resto se puede completar después. Las fichas a las que les falten clasificación, departamento, contrato o fecha de alta salen como incompletas."));
 }
+
+// Baja por IT abierta hoy (la más reciente)
+function itActual(p){ return R.data.aus.filter(a => a.persona_id === p.id && a.tipo.startsWith("IT") && a.fecha_inicio <= hoyKey && (!a.fecha_fin || a.fecha_fin >= hoyKey)).sort((a,b) => a.fecha_inicio < b.fecha_inicio ? 1 : -1)[0] || null; }
 
 // Contrato de puesta a disposición en vigor (o, si no hay, el último) y aviso de vencido
 function contratoActual(p){
@@ -494,7 +533,7 @@ function situacion(p, dia){
   const a = R.data.aus.find(x => x.persona_id === p.id && x.fecha_inicio <= dia && (!x.fecha_fin || x.fecha_fin >= dia));
   if (a) return { t:a.tipo, cls: a.tipo.startsWith("IT") ? "bad" : "warn", a };
   if (p.tipo_vinculo === "Nómina"){ const u = ultimoPeriodo(), n = R.data.nomina.find(x => x.codigo === p.codigo && x.periodo === u);
-    if (n && n.it_enfermedad && !R.data.aus.some(x => x.persona_id === p.id && x.tipo.startsWith("IT"))) return { t:`IT en la nómina de ${mesLab(u)} (sin registrar)`, cls:"pend" }; }
+    if (n && n.it_enfermedad && !R.data.aus.some(x => x.persona_id === p.id && x.tipo.startsWith("IT") && x.fecha_inicio <= finMes(u) && (!x.fecha_fin || x.fecha_fin >= u))) return { t:`IT en la nómina de ${mesLab(u)} (sin registrar)`, cls:"pend", mesIT:u }; }
   return { t:"Activa", cls:"ok" };
 }
 const diasMes = k => +finMes(k).slice(8,10);
@@ -667,21 +706,63 @@ function tarjetaAusencias(p, ed, cerrarFicha){
   const D = R.data, A = D.aus.filter(a => a.persona_id === p.id).sort((a,b) => a.fecha_inicio < b.fecha_inicio ? 1 : -1);
   const c = el("div","card"); c.style.margin = "4px 0 12px";
   const s = situacion(p); const h = el("div"); h.append(el("b",null,"Situación y ausencias "), el("span","tag " + s.cls, s.t)); c.append(h);
+  const fld = (lab, node) => { const x = el("div","f"); x.append(el("label",null,lab), node); return x; };
+  const dIn = v => { const x = el("input"); x.type = "date"; x.value = v || ""; return x; };
+  const menos1 = k => { const d = new Date(k + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() - 1); return d.toISOString().slice(0,10); };
+  const mas1 = k => { const d = new Date(k + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().slice(0,10); };
+  const guardar = async (q, ok) => { const r = await q; if (r.error){ console.error(r.error); toast("No se ha podido guardar"); return; } toast(ok); cerrarFicha(); await recargarFicha(p); };
   const itN = p.tipo_vinculo === "Nómina" ? D.nomina.filter(n => n.codigo === p.codigo && n.it_enfermedad).map(n => mesLab(n.periodo)) : [];
   if (itN.length) c.append(el("p","hint",`La nómina recoge IT (enfermedad) en: ${itN.join(", ")}.`));
-  if (A.length){ const ul = el("ul"); for (const a of A){ const li = el("li"); li.append(`${a.tipo}: ${fec(a.fecha_inicio)} – ${a.fecha_fin ? fec(a.fecha_fin) : "abierta"}${a.observaciones ? " · " + a.observaciones : ""} `);
-      if (ed){ if (!a.fecha_fin){ const b = el("button","btn small","Cerrar hoy"); b.type = "button"; b.addEventListener("click", async () => { const r = await sch().from("ausencias").update({ fecha_fin:hoyKey }).eq("id", a.id); if (r.error) return toast("No se ha podido guardar"); cerrarFicha(); recargar(); }); li.append(b, " "); }
-        const x = el("button","btn small","Eliminar"); x.type = "button"; x.addEventListener("click", async () => { if (!confirm("¿Eliminar esta ausencia?")) return; const r = await sch().from("ausencias").delete().eq("id", a.id); if (r.error) return toast("No se ha podido eliminar"); cerrarFicha(); recargar(); }); li.append(x); }
+  // IT que sale en la nómina y no está registrada: registrarla (abierta o ya con el alta)
+  if (ed && s.mesIT){
+    const bx = el("div"); bx.style.cssText = "border:1px solid var(--line);border-radius:6px;padding:8px 10px;margin:6px 0 10px;background:var(--surface-2)";
+    bx.append(el("b",null,`La nómina de ${mesLab(s.mesIT)} recoge una IT que no está registrada.`), el("p","hint","Regístrala para que la situación sea correcta. Si ya se ha reincorporado, pon la fecha y pasará a «Activa»."));
+    const ini = dIn(s.mesIT), vu = dIn(hoyKey); const g = el("div","f2"); g.append(fld("Inicio de la baja", ini), fld("Se reincorpora el (vacío = sigue de baja)", vu));
+    const b1 = el("button","btn small primary","Registrar la IT"); b1.type = "button";
+    b1.addEventListener("click", () => { if (!ini.value) return ini.focus(); if (vu.value && vu.value <= ini.value) return toast("La reincorporación tiene que ser posterior al inicio");
+      guardar(sch().from("ausencias").insert({ persona_id:p.id, tipo:"IT enfermedad común", fecha_inicio:ini.value, fecha_fin: vu.value ? menos1(vu.value) : null }), vu.value && vu.value <= hoyKey ? "IT registrada: la persona pasa a Activa" : "IT registrada"); });
+    bx.append(g, b1); c.append(bx); }
+  // formulario (alta o edición de una ausencia)
+  let edit = null; const t = el("select"); for (const x of TIPOS_AUS) t.append(new Option(x, x)); const i = dIn(hoyKey), f = dIn(""), o = el("input"); o.placeholder = "Observaciones"; const rv = dIn("");
+  const frv = fld("Próxima revisión (IT)", rv); const syncT = () => { frv.style.display = t.value.startsWith("IT") ? "" : "none"; }; t.addEventListener("change", syncT);
+  const tit = el("b",null,"Nueva ausencia"), bAdd = el("button","btn small primary","Añadir ausencia"), bCan = el("button","btn small","Cancelar edición"); bAdd.type = "button"; bCan.type = "button"; bCan.hidden = true;
+  const cargarForm = a => { edit = a || null; t.value = a ? a.tipo : TIPOS_AUS[0]; i.value = a ? a.fecha_inicio : hoyKey; f.value = a && a.fecha_fin ? a.fecha_fin : ""; o.value = a ? a.observaciones || "" : ""; rv.value = a && a.proxima_revision ? a.proxima_revision : "";
+    tit.textContent = a ? `Editar: ${a.tipo} desde ${fec(a.fecha_inicio)}` : "Nueva ausencia"; bAdd.textContent = a ? "Guardar cambios" : "Añadir ausencia"; bCan.hidden = !a; syncT(); };
+  // lista
+  if (A.length){ const ul = el("ul"); for (const a of A){ const li = el("li"); li.style.margin = "4px 0";
+      const abierta = !a.fecha_fin || a.fecha_fin >= hoyKey;
+      li.append(`${a.tipo}: ${fec(a.fecha_inicio)} – ${a.fecha_fin ? fec(a.fecha_fin) : "abierta"}${a.fecha_fin ? ` (vuelve el ${fec(mas1(a.fecha_fin))})` : ""}${a.observaciones ? " · " + a.observaciones : ""} `);
+      if (a.tipo.startsWith("IT")){ const rvs = el("span"); rvs.style.cssText = "display:inline-flex;align-items:center;gap:6px;margin:0 6px";
+        const lab = el("span",null,"Próxima revisión:"); const vencida = a.proxima_revision && a.proxima_revision < hoyKey && abierta;
+        if (ed && abierta){ const d = dIn(a.proxima_revision); d.style.width = "auto"; if (vencida) d.style.color = "var(--red)";
+          d.addEventListener("change", async () => { const r = await sch().from("ausencias").update({ proxima_revision:d.value || null }).eq("id", a.id); if (r.error) return toast("No se ha podido guardar la revisión"); a.proxima_revision = d.value || null; toast("Próxima revisión guardada"); render(); });
+          rvs.append(lab, d); }
+        else rvs.append(lab, el("b",null, a.proxima_revision ? fec(a.proxima_revision) : "sin fecha"));
+        if (vencida){ const w = el("span",null,"vencida"); w.style.color = "var(--red)"; rvs.append(w); }
+        li.append(rvs); }
+      if (ed){
+        if (abierta){ const fin = el("span"); fin.style.cssText = "display:inline-flex;align-items:center;gap:6px;margin:4px 6px 0 0";
+          const d = dIn(hoyKey); d.style.width = "auto"; const b = el("button","btn small primary","Finalizar"); b.type = "button"; b.title = "Cierra la ausencia: la persona vuelve a estar Activa desde esa fecha";
+          b.addEventListener("click", () => { if (!d.value) return d.focus(); if (d.value <= a.fecha_inicio) return toast("La reincorporación tiene que ser posterior al inicio de la ausencia");
+            guardar(sch().from("ausencias").update({ fecha_fin:menos1(d.value) }).eq("id", a.id), d.value <= hoyKey ? "Ausencia finalizada: la persona pasa a Activa" : "Fecha de reincorporación guardada"); });
+          fin.append(el("span",null,"Se reincorpora el"), d, b); li.append(el("br"), fin); }
+        const eb = el("button","btn small","Editar"); eb.type = "button"; eb.addEventListener("click", () => { cargarForm(a); i.focus(); });
+        const x = el("button","btn small","Eliminar"); x.type = "button"; x.addEventListener("click", () => { if (!confirm("¿Eliminar esta ausencia?")) return; guardar(sch().from("ausencias").delete().eq("id", a.id), "Ausencia eliminada"); });
+        li.append(" ", eb, " ", x); }
       ul.append(li); } c.append(ul); }
   else c.append(el("p","hint","Sin ausencias registradas."));
-  if (ed){ const g = el("div","f2"); const t = el("select"); for (const x of TIPOS_AUS) t.append(new Option(x, x)); const i = el("input"); i.type = "date"; i.value = hoyKey; const f = el("input"); f.type = "date"; const o = el("input"); o.placeholder = "Observaciones";
-    const fld = (lab, node) => { const x = el("div","f"); x.append(el("label",null,lab), node); return x; };
-    g.append(fld("Tipo", t), fld("Observaciones", o), fld("Desde", i), fld("Hasta (vacío = sigue abierta)", f));
-    const b = el("button","btn small","Añadir ausencia"); b.type = "button";
-    b.addEventListener("click", async () => { if (!i.value) return i.focus(); if (f.value && f.value < i.value) return toast("La fecha final es anterior a la inicial"); const r = await sch().from("ausencias").insert({ persona_id:p.id, tipo:t.value, fecha_inicio:i.value, fecha_fin:f.value || null, observaciones:o.value.trim() || null }); if (r.error) return toast("No se ha podido guardar la ausencia"); toast("Ausencia registrada"); cerrarFicha(); recargar(); });
-    c.append(g, b, el("p","hint","La baja definitiva en la empresa se indica con la fecha y el motivo de baja de la ficha.")); }
+  if (ed){ const g = el("div","f2"); g.append(fld("Tipo", t), fld("Observaciones", o), fld("Desde", i), fld("Último día de ausencia (vacío = sigue abierta)", f), frv);
+    bAdd.addEventListener("click", () => { if (!i.value) return i.focus(); if (f.value && f.value < i.value) return toast("La fecha final es anterior a la inicial");
+      const row = { tipo:t.value, fecha_inicio:i.value, fecha_fin:f.value || null, observaciones:o.value.trim() || null, proxima_revision: t.value.startsWith("IT") && rv.value ? rv.value : null };
+      if (edit) guardar(sch().from("ausencias").update(row).eq("id", edit.id), "Ausencia actualizada");
+      else guardar(sch().from("ausencias").insert({ persona_id:p.id, ...row }), "Ausencia registrada"); });
+    bCan.addEventListener("click", () => cargarForm(null));
+    const bs = el("div"); bs.style.cssText = "display:flex;gap:8px"; bs.append(bAdd, bCan);
+    const fb = el("div"); fb.style.cssText = "border-top:1px solid var(--line);margin-top:8px;padding-top:8px"; fb.append(tit, g, bs, el("p","hint","Para terminar una baja o ausencia usa «Finalizar» con la fecha en que se reincorpora: desde ese día la persona sale como Activa. La baja definitiva en la empresa se indica con la fecha y el motivo de baja de la ficha."));
+    c.append(fb); cargarForm(null); }
   return c;
 }
+async function recargarFicha(p){ R.data = null; await cargar(); const q = R.data.personas.find(x => x.id === p.id); if (q) ficha(q); }
 
 // ---------- Carga del fichero «Imputación de costes» ----------
 const txt = v => v == null ? "" : String(v).trim();
