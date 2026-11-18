@@ -59,6 +59,16 @@ columna «Riesgo» (se muestra en positivo; los abonos, en negativo). Forma de p
 legibles en `tesoreria.formas_pago`. Vencida = vencimiento anterior a hoy. Para actualizar: en el propio módulo,
 «Actualizar datos», eligiendo el Tesoreria.xlsx (se sustituyen todos los datos).
 
+## Tesorería · Facturas de clientes pendientes de cobro
+
+Módulo `tesoreria_cli` (carpeta Tesorería, ruta `#tesoreria-clientes`, migración 31). Hoja «CustTransOpen» del Excel de
+transacciones abiertas de clientes de AX en `tesoreria.facturas_clientes`. Pendiente de cobro = AMOUNTMST (positivo = a cobrar;
+negativo = abono o cobro a cuenta). Estado = POSTINGPROFILE (General, Remesa, Impago, Cartera, Dotación), filtro principal arriba;
+por defecto General + Impago. Vista en árbol Mercado (Extranjeros) › Agrupación sistema cobro › Modo de pago (PAYMMODE) › Nombre
+(NAME) › facturas, con meses de vencimiento desplegables en vencida / no vencida (fuera de los 12 meses anteriores y posteriores,
+por años o «posteriores»). Vencida = vencimiento anterior a hoy. Filtros por todos los campos. Para actualizar: «Actualizar con Excel»
+(se valida antes de cargar y se sustituyen todos los datos).
+
 ## Comercial · Análisis de la demanda
 
 Diario de pedidos de venta de AX (hoja «AC.Pedidos» del Excel Diario_Demanda_Cartera) en `ax.pedidos_venta_diario`
