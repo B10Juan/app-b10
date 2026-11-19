@@ -70,6 +70,15 @@ Meses de vencimiento desplegables en vencida / no vencida (fuera de los 12 meses
 por años o «posteriores»). Vencida = vencimiento anterior a hoy. Filtros por todos los campos. Para actualizar: «Actualizar con Excel»
 (se valida antes de cargar y se sustituyen todos los datos).
 
+## Tesorería · Gestión del cobro
+
+En la ficha de cada cliente (módulo `tesoreria_cli`, migración 32) se registran las acciones de cobro en `tesoreria.gestion_cobro`
+(por código de cliente, no se borra al actualizar el Excel): fecha, tipo (llamada, email, carta/burofax, visita, promesa o acuerdo de pago),
+nota, promesa de pago (importe y fecha), próxima acción y su fecha (por defecto a 7 días; vacía = sin seguimiento). Al registrar una acción,
+la pendiente anterior queda hecha. En la tabla, cada cliente muestra «próx. dd/mm» (en rojo si está atrasada) o la fecha de la última acción;
+el indicador «Acciones de cobro para hoy o atrasadas» filtra esos clientes. Indicador «Riesgo en remesas»: efectos remesados no vencidos
+(cuando el filtro Estado no incluye Remesa). Exportaciones con columnas de gestión y hoja de historial en el extracto del cliente.
+
 ## Comercial · Análisis de la demanda
 
 Diario de pedidos de venta de AX (hoja «AC.Pedidos» del Excel Diario_Demanda_Cartera) en `ax.pedidos_venta_diario`
