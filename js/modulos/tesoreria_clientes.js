@@ -4,7 +4,7 @@ import { el, toast, dLong, parseKey, xDate, sheet, saveXlsx, stamp, ddMulti, saf
 
 const MOD = "tesoreria_cli";
 const T = { rows:null, loading:false, carga:null, expV:true, expN:true, det:3, tog:new Map(), q:"", orden:"importe",
-  f:{ estado:null, mercado:[], agrup:[], modo:[], cliente:[], sit:[], mes:[] } };
+  gest:new Map(), soloAcc:false, f:{ estado:null, mercado:[], agrup:[], modo:[], cliente:[], sit:[], mes:[] } };
 const MES = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
 const p2 = n => String(n).padStart(2,"0");
 const hoyD = new Date(), hoyKey = `${hoyD.getFullYear()}-${p2(hoyD.getMonth()+1)}-${p2(hoyD.getDate())}`;
@@ -42,6 +42,7 @@ async function cargar(){
     }
     const c = await sb.schema("core").from("cargas").select("fichero,cargado_en,fecha_datos,filas").eq("tipo","tesoreria_clientes").order("cargado_en",{ascending:false}).limit(1);
     T.carga = (c.data || [])[0] || null;
+    await cargarGestion();
     T.rows = out.map(r => ({ ...r, imp:+r.importe || 0, venc:r.vencimiento || null,
       mercado:r.mercado || SIN, agrup:r.agrupacion || SIN, modo:r.modo_pago || SIN, cliente:r.cliente || r.cliente_cod || SIN, estado:r.estado || SIN }));
     T.rows.forEach(r => { r.col = col(r); r.sit = sitLab(r); });
@@ -49,6 +50,26 @@ async function cargar(){
     if (!T.f.estado && T.rows.length){ const e = new Set(T.rows.map(r => r.estado)); T.f.estado = ["General","Impago"].filter(x => e.has(x)); }
   } catch(e){ console.error(e); toast("No se han podido cargar las facturas de clientes."); T.rows = []; }
   T.loading = false; render();
+}
+
+// ---- Gestión del cobro (tesoreria.gestion_cobro): historial de acciones por código de cliente ----
+const TIPOS = ["Llamada","Email","Carta / burofax","Visita","Promesa de pago","Acuerdo de pago","Otro"];
+async function cargarGestion(){
+  const out = [];
+  try{
+    for (let i = 0; ; i += 1000){
+      const { data, error } = await sb.schema("tesoreria").from("gestion_cobro").select("*").order("fecha",{ascending:false}).order("id",{ascending:false}).range(i, i+999);
+      if (error) throw error; out.push(...data); if (data.length < 1000) break;
+    }
+  } catch(e){ console.error(e); }
+  T.gest = new Map(); for (const g of out){ const l = T.gest.get(g.cliente_cod) || []; l.push(g); T.gest.set(g.cliente_cod, l); }
+}
+// situación de la gestión de un cliente: última acción, próxima acción pendiente y promesa de pago vigente
+function gestion(cod){
+  const l = T.gest.get(cod) || [];
+  const pend = l.find(g => g.proxima_fecha && !g.hecha) || null;
+  const prom = l.find(g => g.promesa_fecha) || null;
+  return { l, ultima:l[0] || null, pend, prom, atrasada: !!pend && pend.proxima_fecha <= hoyKey };
 }
 
 const opciones = (rows, k, lab) => { const m = new Map(); for (const r of rows){ const v = r[k]; const x = m.get(v) || { v, l: lab ? lab(v) : v, n:0, s:0 }; x.n++; x.s += r.imp; m.set(v, x); } return [...m.values()]; };
@@ -100,11 +121,13 @@ export function renderTesoreriaClientes(app){
   ctl.append(dd("mer","Mercado","mercado","mercado","mercado"), dd("agr","Agrupación","agrup","agrup","agrup"), dd("mod","Modo de pago","modo","modo","modo"),
     dd("cli","Nombre","cliente","cliente","cliente"), dd("sit","Situación","sit","sit","sit"), dd("mes","Vencimiento","col","col","mes", colLab, (a,b) => a.v < b.v ? -1 : 1));
   const qd = el("div","fld"); const q = el("input"); q.type = "search"; q.placeholder = "Cliente, código, factura o asiento"; q.value = T.q; q.dataset.k = "tc-q"; q.addEventListener("input", () => { T.q = q.value; rr(); }); qd.append(el("span",null,"Buscar"), q); ctl.append(qd);
+  const ca = el("label","chk"); const ci = el("input"); ci.type = "checkbox"; ci.checked = T.soloAcc; ci.addEventListener("change", () => { T.soloAcc = ci.checked; rr(); });
+  ca.append(ci, " Solo clientes con acción de cobro para hoy o atrasada"); ctl.append(ca);
   const hay = F.mercado.length || F.agrup.length || F.modo.length || F.cliente.length || F.sit.length || F.mes.length || T.q;
   if (hay){ const cl = el("button","btn small","Quitar filtros"); cl.type = "button"; cl.addEventListener("click", () => { Object.assign(F, { mercado:[], agrup:[], modo:[], cliente:[], sit:[], mes:[] }); T.q = ""; rr(); }); ctl.append(cl); }
   box.append(ctl);
 
-  const L = T.rows.filter(r => pasa(r) && busca(r));
+  const L = T.rows.filter(r => pasa(r) && busca(r) && (!T.soloAcc || gestion(r.cliente_cod).atrasada));
   const sum = a => a.reduce((s,r) => s + r.imp, 0);
   const en = d => { const x = new Date(); x.setDate(x.getDate() + d); return `${x.getFullYear()}-${p2(x.getMonth()+1)}-${p2(x.getDate())}`; };
   const V = L.filter(vencida), V90 = V.filter(r => r.venc < en(-90)), N30 = L.filter(r => !vencida(r) && r.venc && r.venc <= en(30)), AB = L.filter(r => r.imp < 0);
@@ -114,6 +137,12 @@ export function renderTesoreriaClientes(app){
     kp("Vencido hace más de 90 días", eur(sum(V90)) || "0 €", `${V90.length} apuntes`, V90.length ? "bad" : ""),
     kp("Vence en 30 días", eur(sum(N30)) || "0 €", `${N30.length} apuntes`),
     kp("Abonos y cobros a cuenta", eur(sum(AB)) || "0 €", `${AB.length} apuntes`));
+  // acciones de cobro atrasadas (clientes con saldo en la vista) y riesgo de lo remesado que aún no ha vencido
+  const codsL = [...new Set(L.map(r => r.cliente_cod))], atr = codsL.filter(c => gestion(c).atrasada);
+  const ka = kp("Acciones de cobro para hoy o atrasadas", String(atr.length), atr.length ? "clientes · pulsa para verlos" : "ninguna pendiente", atr.length ? "bad" : "");
+  ka.classList.add("kclick"); ka.title = "Ver solo los clientes con una acción de cobro para hoy o atrasada"; ka.addEventListener("click", () => { T.soloAcc = !T.soloAcc; rr(); }); k.append(ka);
+  const RM = T.rows.filter(r => r.estado === "Remesa" && !vencida(r) && pasa(r, "estado") && busca(r));
+  if (!FE.includes("Remesa") && RM.length){ const kr = kp("Riesgo en remesas (no vencido)", eur(sum(RM)) || "0 €", `${RM.length} efectos remesados; si no se pagan, vuelven como impago`); kr.title = "Efectos de estado Remesa que aún no han vencido. No están en el total de arriba (filtro Estado)."; k.append(kr); }
   box.append(k);
 
   // nivel de detalle
@@ -167,7 +196,9 @@ export function renderTesoreriaClientes(app){
     for (let c = 1; c <= 3; c++){
       const td = el("td","l fix c"+c);
       if (c === x.d){ td.classList.add("sup"); td.append(el("span","chev", cliente ? "›" : (open ? "▾" : "▸")), el("b",null,x.lab));
-        if (cliente) td.append(el("small",null,` ${x.cod ? x.cod + " · " : ""}${x.filas.length} fra.`));
+        if (cliente){ td.append(el("small",null,` ${x.cod ? x.cod + " · " : ""}${x.filas.length} fra.`));
+          const g = gestion(x.cod); if (g.pend){ const sp = el("span","gc-tag"+(g.atrasada ? " late" : ""), `próx. ${fec(g.pend.proxima_fecha).slice(0,5)}`); sp.title = `${g.pend.proxima_accion || "Próxima acción"} · ${fec(g.pend.proxima_fecha)}`; td.append(" ", sp); }
+          else if (g.ultima){ const sp = el("span","gc-tag ok", `últ. ${fec(g.ultima.fecha).slice(0,5)}`); sp.title = `Última acción: ${g.ultima.tipo} · ${fec(g.ultima.fecha)}`; td.append(" ", sp); } }
         td.title = x.lab; }
       tr.append(td);
     }
@@ -221,10 +252,75 @@ function fichaCliente(x){
   t.append(tb);
   const tf = el("tfoot"), fr = el("tr"); const c0 = el("td","l","Total"); c0.colSpan = 4; fr.append(c0, el("td","n", imp(tot)), el("td","n", imp(acum))); tf.append(fr); t.append(tf);
   w.append(t); dlg.append(w);
+  dlg.append(seccionGestion(x, F, tot));
   dlg.append(el("p","hint","Ordenadas por vencimiento. En rojo, las vencidas (y en negrita roja, más de 90 días); en verde, los abonos y cobros a cuenta. Solo se incluyen los documentos que pasan los filtros de la pantalla (Estado, Modo de pago…). Al pasar el ratón por una fila se ve su modo de pago, asiento y texto."));
   dlg.addEventListener("close", () => dlg.remove());
   dlg.showModal(); cerrar.focus();
 }
+// Sección «Gestión del cobro» de la ficha: situación, nueva acción e historial
+function seccionGestion(x, F, saldo){
+  const box = el("div","gc"); const g = gestion(x.cod), ed = nivel(MOD) === "editar";
+  box.append(el("h3",null,"Gestión del cobro"));
+  const est = el("div","gc-est");
+  const linea = (t, v, cl) => { const d = el("div", cl || ""); d.append(el("small",null,t), el("span",null,v)); return d; };
+  est.append(linea("Última acción", g.ultima ? `${fec(g.ultima.fecha)} · ${g.ultima.tipo}${g.ultima.usuario ? " · " + g.ultima.usuario : ""}` : "Sin acciones registradas"),
+    linea("Próxima acción", g.pend ? `${fec(g.pend.proxima_fecha)} · ${g.pend.proxima_accion || "—"}` : "Ninguna pendiente", g.atrasada ? "late" : ""),
+    linea("Promesa de pago", g.prom ? `${eur(+g.prom.promesa_importe) || "—"} el ${fec(g.prom.promesa_fecha)}${g.prom.promesa_fecha < hoyKey ? " (fecha pasada: comprobar si se ha cobrado)" : ""}` : "—", g.prom && g.prom.promesa_fecha < hoyKey ? "late" : ""));
+  box.append(est);
+  if (!x.cod){ box.append(el("p","hint","Este cliente no tiene código en el fichero: no se puede registrar la gestión.")); return box; }
+  if (ed){
+    const f = el("form","gc-form"); f.noValidate = true;
+    const campo = (lab, inp, cls) => { const l = el("label", cls || ""); l.append(el("span",null,lab), inp); f.append(l); return inp; };
+    const fe = campo("Fecha", Object.assign(el("input"), { type:"date", value:hoyKey, required:true }));
+    const ti = campo("Tipo", el("select")); for (const t of TIPOS) ti.append(Object.assign(el("option",null,t), { value:t }));
+    const no = campo("Nota (qué se ha hablado o enviado)", Object.assign(el("textarea"), { rows:2 }), "wide");
+    const pi = campo("Promesa de pago: importe €", Object.assign(el("input"), { type:"number", step:"0.01", min:"0", placeholder:"opcional" }));
+    const pf = campo("Promesa de pago: fecha", Object.assign(el("input"), { type:"date" }));
+    const pa = campo("Próxima acción", Object.assign(el("input"), { type:"text", placeholder:"p. ej. volver a llamar si no paga" }), "wide2");
+    const en7 = (() => { const d = new Date(); d.setDate(d.getDate() + 7); return `${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())}`; })();
+    const pr = campo("Fecha próxima acción (vacía = sin seguimiento)", Object.assign(el("input"), { type:"date", value:en7 }));
+    ti.addEventListener("change", () => { if (/Promesa|Acuerdo/.test(ti.value) && !pi.value && saldo > 0) pi.value = (Math.round(saldo*100)/100).toFixed(2); });
+    const msg = el("p","err-msg gc-msg");
+    const gb = el("button","btn primary small","Registrar acción"); gb.type = "submit";
+    f.append(msg, gb);
+    f.addEventListener("submit", async ev => {
+      ev.preventDefault(); msg.textContent = "";
+      if (!fe.value){ msg.textContent = "Indica la fecha."; return; }
+      if (!no.value.trim() && !pi.value){ msg.textContent = "Escribe una nota o una promesa de pago."; return; }
+      if ((pi.value && !pf.value) || (!pi.value && pf.value)){ msg.textContent = "La promesa de pago necesita importe y fecha."; return; }
+      if (pa.value.trim() && !pr.value){ msg.textContent = "Indica la fecha de la próxima acción."; return; }
+      gb.disabled = true;
+      try{
+        // la acción pendiente anterior queda hecha al registrar una nueva
+        const u = await sb.schema("tesoreria").from("gestion_cobro").update({ hecha:true }).eq("cliente_cod", x.cod).eq("hecha", false); if (u.error) throw u.error;
+        const r = await sb.schema("tesoreria").from("gestion_cobro").insert({ cliente_cod:x.cod, cliente:x.lab, fecha:fe.value, tipo:ti.value, nota:no.value.trim() || null,
+          promesa_importe: pi.value ? +pi.value : null, promesa_fecha: pf.value || null, proxima_accion: pr.value ? (pa.value.trim() || "Seguimiento") : null, proxima_fecha: pr.value || null,
+          usuario: ctx.me ? (ctx.me.nombre || ctx.me.email) : null });
+        if (r.error) throw r.error;
+        await cargarGestion(); toast("Acción de cobro registrada"); fichaCliente(x); render();
+      } catch(e){ console.error(e); msg.textContent = "No se ha podido guardar: " + (e.message || "error"); gb.disabled = false; }
+    });
+    box.append(f);
+  }
+  if (g.l.length){
+    const t = el("table","tbl gc-hist"); const hr = el("tr"); for (const h of ["Fecha","Tipo","Nota","Promesa","Próxima acción","Quién", ""]) hr.append(el("th","l",h));
+    const th = el("thead"); th.append(hr); t.append(th); const tb = el("tbody");
+    for (const a of g.l){
+      const tr = el("tr");
+      tr.append(el("td","l",fec(a.fecha)), el("td","l",a.tipo), el("td","l nota",a.nota || ""), el("td","l", a.promesa_fecha ? `${eur(+a.promesa_importe) || ""} el ${fec(a.promesa_fecha)}` : ""),
+        el("td","l"+(a.proxima_fecha && !a.hecha && a.proxima_fecha <= hoyKey ? " late" : ""), a.proxima_fecha ? `${fec(a.proxima_fecha)} · ${a.proxima_accion || ""}${a.hecha ? " (hecha)" : ""}` : ""), el("td","l",a.usuario || ""));
+      const td = el("td","l");
+      if (ed){ const b = el("button","btn small","Borrar"); b.type = "button"; b.addEventListener("click", async () => {
+        if (!confirm(`¿Borrar la acción del ${fec(a.fecha)} (${a.tipo})?`)) return;
+        const r = await sb.schema("tesoreria").from("gestion_cobro").delete().eq("id", a.id); if (r.error){ toast("No se ha podido borrar"); return; }
+        await cargarGestion(); fichaCliente(x); render(); }); td.append(b); }
+      tr.append(td); tb.append(tr);
+    }
+    t.append(tb); const w = el("div","gc-hw"); w.append(t); box.append(w);
+  }
+  return box;
+}
+
 // Extracto del cliente en Excel: el saldo acumulado va con fórmulas
 function exportarFicha(x, F){
   const wb = XLSX.utils.book_new(), ini = 5;
@@ -237,6 +333,9 @@ function exportarFicha(x, F){
   const ws = sheet(A, [16,12,12,11,13,15,13,10,12,28]);
   for (let r = ini; r <= fin + 1; r++) for (const c of ["E","F"]){ const cell = ws[c + r]; if (cell) cell.z = "#,##0.00 €"; }
   XLSX.utils.book_append_sheet(wb, ws, "Extracto");
+  const G = gestion(x.cod).l;
+  if (G.length) XLSX.utils.book_append_sheet(wb, sheet([["Fecha","Tipo","Nota","Promesa importe","Promesa fecha","Próxima acción","Fecha próxima","Hecha","Quién"],
+    ...G.map(a => [xDate(parseKey(a.fecha)), a.tipo, a.nota || "", a.promesa_importe == null ? "" : +a.promesa_importe, a.promesa_fecha ? xDate(parseKey(a.promesa_fecha)) : "", a.proxima_accion || "", a.proxima_fecha ? xDate(parseKey(a.proxima_fecha)) : "", a.hecha ? "Sí" : "", a.usuario || ""])], [12,16,40,14,12,30,12,7,18]), "Gestión del cobro");
   saveXlsx(wb, `Extracto_${safe(x.lab).slice(0,40)}_${stamp()}.xlsx`);
 }
 
@@ -246,12 +345,14 @@ function exportar(){
   for (const r of L.slice().sort((a,b) => a.mercado.localeCompare(b.mercado) || a.agrup.localeCompare(b.agrup) || a.modo.localeCompare(b.modo) || a.cliente.localeCompare(b.cliente) || ((a.venc || "") < (b.venc || "") ? -1 : 1)))
     A.push([r.mercado, r.estado, r.agrup, r.modo, r.cliente, r.cliente_cod || "", r.factura || "", r.asiento || "", r.texto || "", r.fecha_factura ? xDate(parseKey(r.fecha_factura)) : "", r.venc ? xDate(parseKey(r.venc)) : "", r.sit, colLab(r.col), r.estado_efecto || "", r.remesa || "", r.banco || "", r2(r.imp)]);
   XLSX.utils.book_append_sheet(wb, sheet(A, [11,10,24,14,36,10,16,12,24,12,12,11,13,12,12,22,14]), "Facturas pendientes");
-  const H = ["Mercado","Agrupación sistema cobro","Nombre", ...T._mV.map(m => "Vencida " + colLab(m)), "Total vencida", ...T._mN.map(m => "No vencida " + colLab(m)), "Total no vencida", "Total pendiente"];
+  const H = ["Mercado","Agrupación sistema cobro","Nombre", ...T._mV.map(m => "Vencida " + colLab(m)), "Total vencida", ...T._mN.map(m => "No vencida " + colLab(m)), "Total no vencida", "Total pendiente", "Última acción", "Próxima acción", "Fecha próxima acción"];
   const B = [H];
-  const fila = (x, labs) => B.push([...labs, ...T._mV.map(m => r2(x.v[m] || 0)), r2(x.tv), ...T._mN.map(m => r2(x.n[m] || 0)), r2(x.tn), r2(x.t)]);
+  const fila = (x, labs) => { const g = x.cod ? gestion(x.cod) : {};
+    B.push([...labs, ...T._mV.map(m => r2(x.v[m] || 0)), r2(x.tv), ...T._mN.map(m => r2(x.n[m] || 0)), r2(x.tn), r2(x.t),
+      g.ultima ? `${fec(g.ultima.fecha)} ${g.ultima.tipo}` : "", g.pend ? g.pend.proxima_accion || "" : "", g.pend ? xDate(parseKey(g.pend.proxima_fecha)) : ""]); };
   const rec = (x, labs) => { for (const h of [...x.hijos.values()].sort((a,b) => String(a.lab).localeCompare(String(b.lab), "es"))){ const l = [...labs, h.lab]; if (h.d === 3) fila(h, l); else rec(h, l); } };
   if (T._raiz){ rec(T._raiz, []); fila(T._raiz, ["Total general","",""]); }
-  XLSX.utils.book_append_sheet(wb, sheet(B, [11,24,36, ...H.slice(3).map(() => 13)]), "Resumen por cliente");
+  XLSX.utils.book_append_sheet(wb, sheet(B, [11,24,36, ...H.slice(3, -3).map(() => 13), 22, 30, 12]), "Resumen por cliente");
   saveXlsx(wb, `Facturas_clientes_pendientes_${stamp()}.xlsx`);
 }
 
