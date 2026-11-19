@@ -64,8 +64,9 @@ legibles en `tesoreria.formas_pago`. Vencida = vencimiento anterior a hoy. Para 
 Módulo `tesoreria_cli` (carpeta Tesorería, ruta `#tesoreria-clientes`, migración 31). Hoja «CustTransOpen» del Excel de
 transacciones abiertas de clientes de AX en `tesoreria.facturas_clientes`. Pendiente de cobro = AMOUNTMST (positivo = a cobrar;
 negativo = abono o cobro a cuenta). Estado = POSTINGPROFILE (General, Remesa, Impago, Cartera, Dotación), filtro principal arriba;
-por defecto General + Impago. Vista en árbol Mercado (Extranjeros) › Agrupación sistema cobro › Modo de pago (PAYMMODE) › Nombre
-(NAME) › facturas, con meses de vencimiento desplegables en vencida / no vencida (fuera de los 12 meses anteriores y posteriores,
+por defecto General + Impago. Vista en árbol Mercado (Extranjeros) › Agrupación sistema cobro › Nombre (NAME);
+al pulsar un cliente se abre su ficha (nombre y modo de pago arriba; facturas con nº, fecha, vencimiento y saldo acumulado).
+Meses de vencimiento desplegables en vencida / no vencida (fuera de los 12 meses anteriores y posteriores,
 por años o «posteriores»). Vencida = vencimiento anterior a hoy. Filtros por todos los campos. Para actualizar: «Actualizar con Excel»
 (se valida antes de cargar y se sustituyen todos los datos).
 
