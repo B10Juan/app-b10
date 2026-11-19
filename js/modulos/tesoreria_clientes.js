@@ -27,7 +27,6 @@ const sitLab = r => vencida(r) ? "Vencida" : "No vencida";
 const NIVELES = [
   { k:"mercado", t:"Mercado" },
   { k:"agrup",   t:"Agrupación sistema cobro" },
-  { k:"modo",    t:"Modo de pago" },
   { k:"cliente", t:"Nombre" },
 ];
 
@@ -56,7 +55,7 @@ const opciones = (rows, k, lab) => { const m = new Map(); for (const r of rows){
 
 export function renderTesoreriaClientes(app){
   document.title = "Tesorería: facturas de clientes pendientes de cobro";
-  cabecera(app, "Facturas de clientes pendientes de cobro", "Importes pendientes por mercado, sistema de cobro, modo de pago y cliente, por mes de vencimiento, separando lo vencido de lo que vence más adelante.", { txt:"Tesorería", href:"#tesoreria" }, MOD);
+  cabecera(app, "Facturas de clientes pendientes de cobro", "Importes pendientes por mercado, sistema de cobro y cliente, por mes de vencimiento, separando lo vencido de lo que vence más adelante. Pulsa un cliente para ver sus facturas.", { txt:"Tesorería", href:"#tesoreria" }, MOD);
   const box = el("div","pad tes tcli"); box.style.paddingBottom = "32px"; app.append(box);
   if (!T.rows){ if (!T.loading) cargar(); box.append(el("div","card empty","Cargando facturas…")); return; }
   if (T.carga) box.append(el("p","hint",`Datos del fichero «${T.carga.fichero}»${T.carga.fecha_datos ? ", informe del " + dLong(parseKey(T.carga.fecha_datos.slice(0,10))) : ""}. Una factura está vencida si su vencimiento es anterior a hoy (${fec(hoyKey)}). Los importes a cobrar van en positivo; los abonos y cobros a cuenta, en negativo.`));
@@ -119,7 +118,7 @@ export function renderTesoreriaClientes(app){
 
   // nivel de detalle
   const dctl = el("div","ctrl rctl"); const df = el("div","fld"); const ds = el("div","seg");
-  [...NIVELES.map(n => n.t), "Factura"].forEach((t, i) => { const b = el("button",null,t); b.type = "button"; b.setAttribute("aria-pressed", String(T.det === i+1));
+  NIVELES.map(n => n.t).forEach((t, i) => { const b = el("button",null,t); b.type = "button"; b.setAttribute("aria-pressed", String(T.det === i+1));
     b.addEventListener("click", () => { T.det = i+1; T.tog.clear(); rr(); }); ds.append(b); });
   df.append(el("span",null,"Detalle hasta"), ds); dctl.append(df);
   const of = el("div","fld"); const os = el("div","seg");
@@ -139,16 +138,16 @@ export function renderTesoreriaClientes(app){
     NIVELES.forEach((nv, i) => { const key = r[nv.k]; let h = x.hijos.get(key); if (!h){ h = nodo(key, i+1, x.path + "\u0001" + key); if (nv.k === "cliente") h.cod = r.cliente_cod; x.hijos.set(key, h); } x = h; add(x); });
   }
   const abierto = n => T.tog.has(n.path) ? T.tog.get(n.path) : n.d < T.det;
-  const ordenar = (hs, d) => [...hs.values()].sort(d === 4 && T.orden === "importe" ? (a,b) => b.t - a.t : (a,b) => a.lab === SIN ? 1 : b.lab === SIN ? -1 : String(a.lab).localeCompare(String(b.lab), "es"));
+  const ordenar = (hs, d) => [...hs.values()].sort(d === 3 && T.orden === "importe" ? (a,b) => b.t - a.t : (a,b) => a.lab === SIN ? 1 : b.lab === SIN ? -1 : String(a.lab).localeCompare(String(b.lab), "es"));
 
   const tw = el("div","rwrap"); const t = el("table","rtbl tesbl tclitbl");
   const th = el("thead"); const g1 = el("tr","grp"); const gc = (txt, n, cls) => { const x = el("th",cls||"",txt); x.colSpan = n; return x; };
   const gt = (txt, n, cls, key) => { const x = gc("", n, cls + " tog"); const b = el("button","gtog"); b.type = "button"; const ab = T[key];
     b.append(el("span","gi", ab ? "⊟" : "⊞"), txt); b.title = ab ? `Agrupar: ver solo el total ${txt.toLowerCase()}` : `Desplegar los meses de ${txt.toLowerCase()}`;
     b.addEventListener("click", () => { T[key] = !T[key]; rr(); }); x.append(b); return x; };
-  g1.append(gc("",1,"fix c1"), gc("",1,"fix c2"), gc("",1,"fix c3"), gc("",1,"fix c4"), gt("Vencida", mVv.length + 1, "gs gv", "expV"), gt("No vencida", mNv.length + 1, "gs", "expN"), gc("",1));
+  g1.append(gc("",1,"fix c1"), gc("",1,"fix c2"), gc("",1,"fix c3"), gt("Vencida", mVv.length + 1, "gs gv", "expV"), gt("No vencida", mNv.length + 1, "gs", "expN"), gc("",1));
   const hr = el("tr"); const h2 = (a, b, cls) => { const x = el("th",cls||""); x.append(a); if (b){ x.append(el("br")); x.append(el("small",null,b)); } return x; };
-  hr.append(h2("Mercado", null, "l fix c1"), h2("Agrupación", "sistema cobro", "l fix c2"), h2("Modo", "de pago", "l fix c3"), h2("Nombre", "o factura", "l fix c4"));
+  hr.append(h2("Mercado", null, "l fix c1"), h2("Agrupación", "sistema cobro", "l fix c2"), h2("Nombre", "pulsa para ver sus facturas", "l fix c3"));
   mVv.forEach((m,i) => hr.append(h2(colLab(m), null, "n m"+(i===0?" gsl":"")))); hr.append(h2("Total", "vencida", "n tot"+(mVv.length?"":" gsl")));
   mNv.forEach((m,i) => hr.append(h2(colLab(m), null, "n m"+(i===0?" gsl":"")))); hr.append(h2("Total", "no vencida", "n tot"+(mNv.length?"":" gsl")));
   hr.append(h2("Total", "pendiente", "n tot gsl"));
@@ -162,37 +161,56 @@ export function renderTesoreriaClientes(app){
   };
   let filas = 0;
   const pinta = x => {
-    const open = abierto(x), ultimo = x.d === 4;
-    const tr = el("tr","rsup lv"+x.d+(open?" open":"")); tr.title = open ? "Plegar" : (ultimo ? "Ver sus facturas" : "Desplegar");
-    tr.addEventListener("click", () => { T.tog.set(x.path, !open); rr(); });
-    for (let c = 1; c <= 4; c++){
+    const open = abierto(x), cliente = x.d === 3;
+    const tr = el("tr","rsup lv"+x.d+(open?" open":"")); tr.title = cliente ? "Ver el detalle de sus facturas" : (open ? "Plegar" : "Desplegar");
+    tr.addEventListener("click", () => { if (cliente) fichaCliente(x); else { T.tog.set(x.path, !open); rr(); } });
+    for (let c = 1; c <= 3; c++){
       const td = el("td","l fix c"+c);
-      if (c === x.d){ td.classList.add("sup"); td.append(el("span","chev", open ? "▾" : "▸"), el("b",null,x.lab));
-        if (ultimo) td.append(el("small",null,` ${x.cod ? x.cod + " · " : ""}${x.filas.length} apte.`));
+      if (c === x.d){ td.classList.add("sup"); td.append(el("span","chev", cliente ? "›" : (open ? "▾" : "▸")), el("b",null,x.lab));
+        if (cliente) td.append(el("small",null,` ${x.cod ? x.cod + " · " : ""}${x.filas.length} fra.`));
         td.title = x.lab; }
       tr.append(td);
     }
     importes(tr, x); tb.append(tr); filas++;
-    if (!open) return;
-    if (!ultimo){ for (const h of ordenar(x.hijos, x.d + 1)) pinta(h); return; }
-    for (const r of x.filas.slice().sort((a,b) => (a.venc || "9") < (b.venc || "9") ? -1 : 1)){
-      const fr = el("tr","rart"); fr.append(el("td","fix c1"), el("td","fix c2"), el("td","fix c3"));
-      const cf = el("td","l fix c4 code"); cf.append(r.factura ? `Fra. ${r.factura}` : (r.asiento || "Apunte"));
-      const sm = el("small"); if (r.estado !== "General") sm.append(" · ", el("b",null,r.estado)); sm.append(` · ${fec(r.fecha_factura)} · vto `); const vs = el("span", vencida(r) ? "late" : "", fec(r.venc)); sm.append(vs); cf.append(sm);
-      cf.title = [r.asiento && `Asiento ${r.asiento}`, r.texto, r.estado_efecto && r.estado_efecto !== "Ninguno" && `Efecto: ${r.estado_efecto}`, r.remesa && `Remesa ${r.remesa}`, r.banco].filter(Boolean).join(" · ");
-      fr.append(cf);
-      importes(fr, { v: vencida(r) ? { [r.col]: r.imp } : {}, n: vencida(r) ? {} : { [r.col]: r.imp }, tv: vencida(r) ? r.imp : null, tn: vencida(r) ? null : r.imp, t: r.imp });
-      tb.append(fr); filas++;
-    }
+    if (open && !cliente) for (const h of ordenar(x.hijos, x.d + 1)) pinta(h);
   };
   for (const h of ordenar(raiz.hijos, 1)) pinta(h);
-  if (!filas){ const tr = el("tr"); const td = el("td","l empty","No hay facturas pendientes con estos filtros."); td.colSpan = 7 + mVv.length + mNv.length; tr.append(td); tb.append(tr); }
+  if (!filas){ const tr = el("tr"); const td = el("td","l empty","No hay facturas pendientes con estos filtros."); td.colSpan = 6 + mVv.length + mNv.length; tr.append(td); tb.append(tr); }
   t.append(tb);
-  const tf = el("tfoot"), fr = el("tr"); const c0 = el("td","l fix c1"); c0.colSpan = 1; c0.append(el("b",null,"Total general")); fr.append(c0, el("td","fix c2"), el("td","fix c3"), el("td","fix c4"));
+  const tf = el("tfoot"), fr = el("tr"); const c0 = el("td","l fix c1"); c0.colSpan = 1; c0.append(el("b",null,"Total general")); fr.append(c0, el("td","fix c2"), el("td","fix c3"));
   importes(fr, raiz); tf.append(fr); t.append(tf);
   tw.append(t); box.append(tw);
-  box.append(el("p","hint","Pulsa una fila para desplegarla o plegarla; en un cliente se ven sus facturas (al pasar el ratón, asiento, texto y remesa). Con «Detalle hasta» se despliega todo hasta ese nivel. Fuera de los 12 meses anteriores y posteriores a hoy, los vencimientos se agrupan por años o como «posteriores»."));
+  box.append(el("p","hint","Pulsa una fila para desplegarla o plegarla; al pulsar un cliente se abre el detalle de sus facturas con el saldo acumulado. Con «Detalle hasta» se despliega todo hasta ese nivel. Fuera de los 12 meses anteriores y posteriores a hoy, los vencimientos se agrupan por años o como «posteriores»."));
   T._L = L; T._mV = mV; T._mN = mN; T._raiz = raiz;
+}
+
+// Ficha del cliente: facturas con saldo acumulado
+function fichaCliente(x){
+  let dlg = document.getElementById("dlgCliCobro"); if (dlg) dlg.remove();
+  dlg = el("dialog","ficha-cli"); dlg.id = "dlgCliCobro"; document.body.append(dlg);
+  const F = x.filas.slice().sort((a,b) => ((a.venc || "9") < (b.venc || "9") ? -1 : (a.venc || "9") > (b.venc || "9") ? 1 : (a.fecha_factura || "") < (b.fecha_factura || "") ? -1 : 1));
+  const modos = [...new Set(F.map(r => r.modo))], tot = F.reduce((s,r) => s + r.imp, 0), venc = F.filter(vencida).reduce((s,r) => s + r.imp, 0);
+  const cab = el("div","fc-cab");
+  const tit = el("div"); tit.append(el("h2",null,x.lab), el("p","sub",`${x.cod ? "Cliente " + x.cod + " · " : ""}${F[0] ? F[0].mercado + " · " + F[0].agrup : ""}`));
+  const cerrar = el("button","btn small","Cerrar"); cerrar.type = "button"; cerrar.addEventListener("click", () => dlg.close());
+  cab.append(tit, cerrar); dlg.append(cab);
+  const info = el("div","fc-info");
+  const dato = (t, v, cl) => { const d = el("div","fc-dato"+(cl ? " "+cl : "")); d.append(el("small",null,t), el("b",null,v)); return d; };
+  info.append(dato(modos.length > 1 ? "Modos de pago" : "Modo de pago", modos.join(", ")), dato("Saldo pendiente", eur(tot) || "0 €"), dato("Vencido", eur(venc) || "0 €", venc > 0.5 ? "bad" : ""), dato("Facturas", String(F.length)));
+  dlg.append(info);
+  const w = el("div","fc-tbl"); const t = el("table","tbl"); const th = el("thead"), hr = el("tr");
+  for (const [h, c] of [["Nº factura","l"],["Fecha factura","n"],["Vencimiento","n"],["Saldo acumulado","n"]]) hr.append(el("th",c,h));
+  th.append(hr); t.append(th); const tb = el("tbody"); let acum = 0;
+  for (const r of F){
+    acum += r.imp; const tr = el("tr", vencida(r) ? "fc-venc" : "");
+    tr.title = [`Importe ${eur(r.imp) || "0 €"}`, r.modo, r.estado !== "General" && r.estado, r.asiento && `Asiento ${r.asiento}`, r.texto, r.remesa && `Remesa ${r.remesa}`].filter(Boolean).join(" · ");
+    tr.append(el("td","l", r.factura || r.asiento || "—"), el("td","n", fec(r.fecha_factura)), el("td","n"+(vencida(r) ? " late" : ""), fec(r.venc)), el("td","n"+(acum < -0.5 ? " abono" : ""), eur(acum) || "0 €"));
+    tb.append(tr);
+  }
+  t.append(tb); w.append(t); dlg.append(w);
+  dlg.append(el("p","hint","Ordenadas por vencimiento. En rojo, las vencidas. Al pasar el ratón por una factura se ve su importe, modo de pago y asiento."));
+  dlg.addEventListener("close", () => dlg.remove());
+  dlg.showModal(); cerrar.focus();
 }
 
 function exportar(){
@@ -201,12 +219,12 @@ function exportar(){
   for (const r of L.slice().sort((a,b) => a.mercado.localeCompare(b.mercado) || a.agrup.localeCompare(b.agrup) || a.modo.localeCompare(b.modo) || a.cliente.localeCompare(b.cliente) || ((a.venc || "") < (b.venc || "") ? -1 : 1)))
     A.push([r.mercado, r.estado, r.agrup, r.modo, r.cliente, r.cliente_cod || "", r.factura || "", r.asiento || "", r.texto || "", r.fecha_factura ? xDate(parseKey(r.fecha_factura)) : "", r.venc ? xDate(parseKey(r.venc)) : "", r.sit, colLab(r.col), r.estado_efecto || "", r.remesa || "", r.banco || "", r2(r.imp)]);
   XLSX.utils.book_append_sheet(wb, sheet(A, [11,10,24,14,36,10,16,12,24,12,12,11,13,12,12,22,14]), "Facturas pendientes");
-  const H = ["Mercado","Agrupación sistema cobro","Modo de pago","Nombre", ...T._mV.map(m => "Vencida " + colLab(m)), "Total vencida", ...T._mN.map(m => "No vencida " + colLab(m)), "Total no vencida", "Total pendiente"];
+  const H = ["Mercado","Agrupación sistema cobro","Nombre", ...T._mV.map(m => "Vencida " + colLab(m)), "Total vencida", ...T._mN.map(m => "No vencida " + colLab(m)), "Total no vencida", "Total pendiente"];
   const B = [H];
   const fila = (x, labs) => B.push([...labs, ...T._mV.map(m => r2(x.v[m] || 0)), r2(x.tv), ...T._mN.map(m => r2(x.n[m] || 0)), r2(x.tn), r2(x.t)]);
-  const rec = (x, labs) => { for (const h of [...x.hijos.values()].sort((a,b) => String(a.lab).localeCompare(String(b.lab), "es"))){ const l = [...labs, h.lab]; if (h.d === 4) fila(h, l); else rec(h, l); } };
-  if (T._raiz){ rec(T._raiz, []); fila(T._raiz, ["Total general","","",""]); }
-  XLSX.utils.book_append_sheet(wb, sheet(B, [11,24,14,36, ...H.slice(4).map(() => 13)]), "Resumen por cliente");
+  const rec = (x, labs) => { for (const h of [...x.hijos.values()].sort((a,b) => String(a.lab).localeCompare(String(b.lab), "es"))){ const l = [...labs, h.lab]; if (h.d === 3) fila(h, l); else rec(h, l); } };
+  if (T._raiz){ rec(T._raiz, []); fila(T._raiz, ["Total general","",""]); }
+  XLSX.utils.book_append_sheet(wb, sheet(B, [11,24,36, ...H.slice(3).map(() => 13)]), "Resumen por cliente");
   saveXlsx(wb, `Facturas_clientes_pendientes_${stamp()}.xlsx`);
 }
 
