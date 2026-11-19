@@ -669,32 +669,45 @@ button.vac-d:hover{outline:1px solid var(--line-strong)}
 .arbol-t{display:inline-block;width:1.1em;color:var(--ink-3);font-size:.9em}
 
 /* ---- Tesorería: facturas de clientes pendientes de cobro (cuatro columnas fijas) ---- */
-.tclitbl .c1,.tclitbl .c2,.tclitbl .c3,.tclitbl .c4{position:sticky;box-sizing:border-box;z-index:2;background:var(--surface)}
-.tclitbl thead .c1,.tclitbl thead .c2,.tclitbl thead .c3,.tclitbl thead .c4{z-index:4}
-.tclitbl tfoot .c1,.tclitbl tfoot .c2,.tclitbl tfoot .c3,.tclitbl tfoot .c4{z-index:3}
+.tclitbl .c1,.tclitbl .c2,.tclitbl .c3{position:sticky;box-sizing:border-box;z-index:2;background:var(--surface)}
+.tclitbl thead .c1,.tclitbl thead .c2,.tclitbl thead .c3{z-index:4}
+.tclitbl tfoot .c1,.tclitbl tfoot .c2,.tclitbl tfoot .c3{z-index:3}
 .tclitbl .c1{left:0;width:116px;min-width:116px;max-width:116px}
 .tclitbl .c2{left:116px;width:190px;min-width:190px;max-width:190px}
-.tclitbl .c3{left:306px;width:120px;min-width:120px;max-width:120px}
-.tclitbl .c4{left:426px;width:300px;min-width:300px;max-width:300px;box-shadow:inset -1px 0 0 var(--line)}
-.tclitbl thead tr:not(.grp) th.c4{box-shadow:inset -1px 0 0 var(--line),inset 0 -1px 0 var(--line-strong)}
-.tclitbl tfoot td.c4{box-shadow:inset -1px 0 0 var(--line),inset 0 1px 0 var(--line-strong)}
-.tclitbl td.c1,.tclitbl td.c2,.tclitbl td.c3,.tclitbl td.c4{white-space:normal;overflow-wrap:anywhere}
+.tclitbl .c3{left:306px;width:320px;min-width:320px;max-width:320px;box-shadow:inset -1px 0 0 var(--line)}
+.tclitbl thead tr:not(.grp) th.c3{box-shadow:inset -1px 0 0 var(--line),inset 0 -1px 0 var(--line-strong)}
+.tclitbl tfoot td.c3{box-shadow:inset -1px 0 0 var(--line),inset 0 1px 0 var(--line-strong)}
+.tclitbl td.c1,.tclitbl td.c2,.tclitbl td.c3{white-space:normal;overflow-wrap:anywhere}
 .tclitbl tr.rsup td.fix{background:var(--surface-2)}
 .tclitbl tr.rsup:hover td.fix{background:var(--steel-soft)}
 /* niveles: mercado › agrupación › modo de pago › cliente */
 .tclitbl tr.rsup.lv1 td{background:color-mix(in srgb,var(--steel-soft) 80%,var(--surface-2));font-size:14px;border-top-width:10px}
 .tclitbl tr.rsup.lv1 td.fix{background:color-mix(in srgb,var(--steel-soft) 80%,var(--surface-2))}
 .tclitbl tr.rsup.lv2 td{border-top-width:4px}
-.tclitbl tr.rsup.lv3 td{font-size:13px;border-top-width:2px;padding-top:6px;padding-bottom:6px}
-.tclitbl tr.rsup.lv4 td,.tclitbl tr.rsup.lv4 td.fix{background:var(--surface);font-weight:500;font-size:12.5px;border-top-width:0;padding-top:4px;padding-bottom:4px;box-shadow:inset 0 1px 0 var(--line)}
-.tclitbl tr.rsup.lv4 td.c4{box-shadow:inset -1px 0 0 var(--line),inset 0 1px 0 var(--line)}
-.tclitbl tr.rsup.lv4 td.sup b{font-weight:600}
-.tclitbl tr.rsup.lv4:hover td{background:var(--steel-soft)}
-.tclitbl tr.rart td.code{padding-left:20px}
-.tclitbl tr.rart td.code .late{color:var(--red);font-weight:600}
+.tclitbl tr.rsup.lv3 td,.tclitbl tr.rsup.lv3 td.fix{background:var(--surface);font-weight:500;font-size:12.5px;border-top-width:0;padding-top:4px;padding-bottom:4px;box-shadow:inset 0 1px 0 var(--line)}
+.tclitbl tr.rsup.lv3 td.c3{box-shadow:inset -1px 0 0 var(--line),inset 0 1px 0 var(--line)}
+.tclitbl tr.rsup.lv3 td.sup b{font-weight:600}
+.tclitbl tr.rsup.lv3:hover td{background:var(--steel-soft)}
 .tcli .estado-ctrl .seg button{min-width:72px}
 .tcli .ctrl .btn.small{height:36px}
 .tcli .dd .ddb{min-width:170px}
 .tcli .ctrl input[type=search]{min-width:220px}
 .tclitbl tr.rsup.lv1 td.c1{white-space:nowrap}
-.tclitbl tr.rart td.code b{font-weight:600;color:var(--red)}
+.tclitbl tr.rsup.lv3 td.sup .chev{color:var(--steel);font-weight:700}
+/* ficha de cliente: facturas con saldo acumulado */
+dialog.ficha-cli{max-width:640px}
+.ficha-cli .fc-cab{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.ficha-cli .fc-info{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin:6px 0 12px}
+.ficha-cli .fc-dato{background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:7px 10px}
+.ficha-cli .fc-dato small{display:block;color:var(--ink-2);font-size:12px}
+.ficha-cli .fc-dato b{font-family:"Barlow Semi Condensed",sans-serif;font-size:17px;font-variant-numeric:tabular-nums}
+.ficha-cli .fc-dato.bad b{color:var(--red)}
+.ficha-cli .fc-tbl{max-height:min(60vh,520px);overflow:auto;border:1px solid var(--line);border-radius:8px}
+.ficha-cli .tbl{width:100%;border-collapse:collapse;font-family:"Barlow Semi Condensed",sans-serif;font-variant-numeric:tabular-nums;font-size:13.5px}
+.ficha-cli .tbl th{position:sticky;top:0;background:var(--surface);font-size:12px;color:var(--ink-2);font-weight:600;padding:7px 10px;box-shadow:inset 0 -1px 0 var(--line-strong)}
+.ficha-cli .tbl td{padding:5px 10px;border-top:1px solid var(--line)}
+.ficha-cli .tbl .n{text-align:right;white-space:nowrap}
+.ficha-cli .tbl .l{text-align:left}
+.ficha-cli .tbl td.late{color:var(--red);font-weight:600}
+.ficha-cli .tbl td.abono{color:var(--arrive)}
+.ficha-cli .hint{margin:8px 0 0}
