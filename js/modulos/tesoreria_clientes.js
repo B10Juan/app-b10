@@ -1,6 +1,6 @@
 // APP B10 · Tesorería: facturas de clientes pendientes de cobro (hoja «CustTransOpen» de transacciones abiertas de clientes de AX)
 import { sb, render, cabecera, nivel, ctx } from "../app.js";
-import { el, toast, dLong, parseKey, xDate, sheet, saveXlsx, stamp, ddMulti } from "../util.js";
+import { el, toast, dLong, parseKey, xDate, sheet, saveXlsx, stamp, ddMulti, safe } from "../util.js";
 
 const MOD = "tesoreria_cli";
 const T = { rows:null, loading:false, carga:null, expV:true, expN:true, det:3, tog:new Map(), q:"", orden:"importe",
@@ -189,28 +189,55 @@ function fichaCliente(x){
   let dlg = document.getElementById("dlgCliCobro"); if (dlg) dlg.remove();
   dlg = el("dialog","ficha-cli"); dlg.id = "dlgCliCobro"; document.body.append(dlg);
   const F = x.filas.slice().sort((a,b) => ((a.venc || "9") < (b.venc || "9") ? -1 : (a.venc || "9") > (b.venc || "9") ? 1 : (a.fecha_factura || "") < (b.fecha_factura || "") ? -1 : 1));
-  const modos = [...new Set(F.map(r => r.modo))], tot = F.reduce((s,r) => s + r.imp, 0), venc = F.filter(vencida).reduce((s,r) => s + r.imp, 0);
+  const modos = [...new Set(F.map(r => r.modo))], tot = F.reduce((s,r) => s + r.imp, 0), V = F.filter(vencida), venc = V.reduce((s,r) => s + r.imp, 0);
+  const ab = F.filter(r => r.imp < 0), dias = r => vencida(r) ? Math.round((parseKey(hoyKey) - parseKey(r.venc)) / 864e5) : null;
+  const maxDias = V.filter(r => r.imp > 0).reduce((m,r) => Math.max(m, dias(r)), 0);
+  const estados = [...new Set(F.map(r => r.estado))];
   const cab = el("div","fc-cab");
-  const tit = el("div"); tit.append(el("h2",null,x.lab), el("p","sub",`${x.cod ? "Cliente " + x.cod + " · " : ""}${F[0] ? F[0].mercado + " · " + F[0].agrup : ""}`));
+  const tit = el("div"); tit.append(el("h2",null,x.lab), el("p","sub",`${x.cod ? "Cliente " + x.cod + " · " : ""}${F[0] ? F[0].mercado + " · " + F[0].agrup : ""} · Estado: ${estados.join(", ")}`));
+  const bts = el("div","fc-bts");
+  const exb = el("button","btn small","Exportar a Excel"); exb.type = "button"; exb.title = "Extracto del cliente con el saldo acumulado en fórmulas (para revisar o enviar al cliente)"; exb.addEventListener("click", () => exportarFicha(x, F));
   const cerrar = el("button","btn small","Cerrar"); cerrar.type = "button"; cerrar.addEventListener("click", () => dlg.close());
-  cab.append(tit, cerrar); dlg.append(cab);
+  bts.append(exb, cerrar); cab.append(tit, bts); dlg.append(cab);
   const info = el("div","fc-info");
-  const dato = (t, v, cl) => { const d = el("div","fc-dato"+(cl ? " "+cl : "")); d.append(el("small",null,t), el("b",null,v)); return d; };
-  info.append(dato(modos.length > 1 ? "Modos de pago" : "Modo de pago", modos.join(", ")), dato("Saldo pendiente", eur(tot) || "0 €"), dato("Vencido", eur(venc) || "0 €", venc > 0.5 ? "bad" : ""), dato("Facturas", String(F.length)));
+  const dato = (t, v, s, cl) => { const d = el("div","fc-dato"+(cl ? " "+cl : "")); d.append(el("small",null,t), el("b",null,v)); if (s) d.append(el("span",null,s)); return d; };
+  info.append(dato(modos.length > 1 ? "Modos de pago" : "Modo de pago", modos.join(", ")),
+    dato("Saldo pendiente", eur(tot) || "0 €", `${F.length} documentos`),
+    dato("Vencido", eur(venc) || "0 €", V.length ? `${V.length} documentos${maxDias ? " · el más antiguo, " + maxDias + " días" : ""}` : "nada vencido", venc > 0.5 ? "bad" : ""),
+    dato("Abonos y cobros a cuenta", eur(ab.reduce((s,r) => s + r.imp, 0)) || "0 €", ab.length ? `${ab.length} documentos` : "ninguno", ab.length ? "good" : ""));
   dlg.append(info);
   const w = el("div","fc-tbl"); const t = el("table","tbl"); const th = el("thead"), hr = el("tr");
-  for (const [h, c] of [["Nº factura","l"],["Fecha factura","n"],["Vencimiento","n"],["Saldo acumulado","n"]]) hr.append(el("th",c,h));
+  for (const [h, c, tt] of [["Nº factura","l"],["Fecha factura","n"],["Vencimiento","n"],["Días vencida","n","Días transcurridos desde el vencimiento"],["Importe","n"],["Saldo acumulado","n"]]){ const x2 = el("th",c,h); if (tt) x2.title = tt; hr.append(x2); }
   th.append(hr); t.append(th); const tb = el("tbody"); let acum = 0;
+  const imp = v => { const a = Math.abs(Math.round(v*100)/100), [e, d] = a.toFixed(2).split("."); return (v <= -0.005 ? "-" : "") + e.replace(/\B(?=(\d{3})+(?!\d))/g, ".") + "," + d + " €"; };
   for (const r of F){
-    acum += r.imp; const tr = el("tr", vencida(r) ? "fc-venc" : "");
-    tr.title = [`Importe ${eur(r.imp) || "0 €"}`, r.modo, r.estado !== "General" && r.estado, r.asiento && `Asiento ${r.asiento}`, r.texto, r.remesa && `Remesa ${r.remesa}`].filter(Boolean).join(" · ");
-    tr.append(el("td","l", r.factura || r.asiento || "—"), el("td","n", fec(r.fecha_factura)), el("td","n"+(vencida(r) ? " late" : ""), fec(r.venc)), el("td","n"+(acum < -0.5 ? " abono" : ""), eur(acum) || "0 €"));
+    acum += r.imp; const tr = el("tr", r.imp < 0 ? "fc-abono" : "");
+    tr.title = [r.modo, r.estado !== "General" && r.estado, r.asiento && `Asiento ${r.asiento}`, r.texto, r.remesa && `Remesa ${r.remesa}`].filter(Boolean).join(" · ");
+    const d = dias(r);
+    tr.append(el("td","l", r.factura || r.asiento || "—"), el("td","n", fec(r.fecha_factura)), el("td","n"+(vencida(r) ? " late" : ""), fec(r.venc)),
+      el("td","n"+(d > 90 ? " late" : ""), d == null ? "" : String(d)), el("td","n"+(r.imp < 0 ? " abono" : ""), imp(r.imp)), el("td","n", imp(acum)));
     tb.append(tr);
   }
-  t.append(tb); w.append(t); dlg.append(w);
-  dlg.append(el("p","hint","Ordenadas por vencimiento. En rojo, las vencidas. Al pasar el ratón por una factura se ve su importe, modo de pago y asiento."));
+  t.append(tb);
+  const tf = el("tfoot"), fr = el("tr"); const c0 = el("td","l","Total"); c0.colSpan = 4; fr.append(c0, el("td","n", imp(tot)), el("td","n", imp(acum))); tf.append(fr); t.append(tf);
+  w.append(t); dlg.append(w);
+  dlg.append(el("p","hint","Ordenadas por vencimiento. En rojo, las vencidas (y en negrita roja, más de 90 días); en verde, los abonos y cobros a cuenta. Solo se incluyen los documentos que pasan los filtros de la pantalla (Estado, Modo de pago…). Al pasar el ratón por una fila se ve su modo de pago, asiento y texto."));
   dlg.addEventListener("close", () => dlg.remove());
   dlg.showModal(); cerrar.focus();
+}
+// Extracto del cliente en Excel: el saldo acumulado va con fórmulas
+function exportarFicha(x, F){
+  const wb = XLSX.utils.book_new(), ini = 5;
+  const A = [[`Extracto de ${x.lab}${x.cod ? " (" + x.cod + ")" : ""}`], [`Modo de pago: ${[...new Set(F.map(r => r.modo))].join(", ")} · Fecha: ${fec(hoyKey)}`], [],
+    ["Nº factura","Fecha factura","Vencimiento","Días vencida","Importe","Saldo acumulado","Modo de pago","Estado","Asiento","Texto"]];
+  F.forEach((r, i) => { const n = ini + i;
+    A.push([r.factura || r.asiento || "", r.fecha_factura ? xDate(parseKey(r.fecha_factura)) : "", r.venc ? xDate(parseKey(r.venc)) : "", vencida(r) ? Math.round((parseKey(hoyKey) - parseKey(r.venc)) / 864e5) : "", Math.round(r.imp*100)/100, { f:`SUM($E$${ini}:E${n})` }, r.modo, r.estado, r.asiento || "", r.texto || ""]); });
+  const fin = ini + F.length - 1;
+  A.push(["Total","","","", { f:`SUM(E${ini}:E${fin})` }, { f:`F${fin}` }]);
+  const ws = sheet(A, [16,12,12,11,13,15,13,10,12,28]);
+  for (let r = ini; r <= fin + 1; r++) for (const c of ["E","F"]){ const cell = ws[c + r]; if (cell) cell.z = "#,##0.00 €"; }
+  XLSX.utils.book_append_sheet(wb, ws, "Extracto");
+  saveXlsx(wb, `Extracto_${safe(x.lab).slice(0,40)}_${stamp()}.xlsx`);
 }
 
 function exportar(){
