@@ -658,7 +658,12 @@ function tabEstructura(box){
       const r = await sch().from("puestos").insert({ nombre:pn.value.trim(), departamento:pd.value, clasificacion:d.clasificacion }); if (r.error){ toast(r.error.code === "23505" ? "Ese puesto ya existe en el departamento" : "No se ha podido crear"); return; } toast("Puesto creado"); recargar(); });
     c2.append(fld("Departamento", pd), fld("Nombre del puesto", pn), pb, pc); box.append(c2);
   }
-  // árbol sección › departamento › puesto
+  // árbol sección › departamento › puesto (se puede agrupar y desplegar)
+  const ST = R.fes || (R.fes = { cerrados:new Set(), nivel:2 });
+  const grupos0 = [...["M.O.E","M.O.I","M.O.D"].map(k => [k, CLAS_LAB[k]]), [null, "Departamentos sin sección"]];
+  const nodosE = []; for (const [k] of grupos0){ const ks = "s:" + (k || ""); nodosE.push({ nivel:0, key:ks }); for (const d of D.deps.filter(d => clasDep(d) === k)) nodosE.push({ nivel:1, key:ks + "|d:" + d.nombre }); }
+  const cA = el("div","ctrl"); ctrlArbol(cA, ST, nodosE, 2); box.append(cA);
+  const tog = (tr, td, key, hijos) => { if (!hijos) return; td.prepend(el("span","arbol-t", ST.cerrados.has(key) ? "▸ " : "▾ ")); tr.style.cursor = "pointer"; tr.title = "Pulsa para agrupar o desplegar"; tr.addEventListener("click", () => { if (ST.cerrados.has(key)) ST.cerrados.delete(key); else ST.cerrados.add(key); ST.nivel = null; render(); }); };
   const tw = el("div","tblwrap"); const t = el("table","tbl"); const hr = el("tr"); for (const h of ["Sección › departamento › puesto","Personas activas",""]) hr.append(el("th", h === "Personas activas" ? "n" : null, h)); t.append(el("thead")); t.tHead.append(hr);
   const tb = el("tbody");
   const btn = (txt, fn) => { const b = el("button","btn small",txt); b.type = "button"; b.addEventListener("click", e => { e.stopPropagation(); fn(); }); return b; };
@@ -666,12 +671,15 @@ function tabEstructura(box){
   for (const [k, lab] of grupos){
     const deps = D.deps.filter(d => clasDep(d) === k).sort((a,b) => a.nombre.localeCompare(b.nombre, "es")); if (!deps.length && !k) continue;
     const tot = sum(deps, d => activos.filter(p => p.departamento === d.nombre).length);
-    const tr = el("tr","wk"); tr.append(el("td",null,lab), el("td","n",String(tot)), el("td")); tb.append(tr);
+    const ks = "s:" + (k || ""); const tr = el("tr","wk"); const td0 = el("td",null,lab + ` (${deps.length} dpto.)`); tog(tr, td0, ks, deps.length); tr.append(td0, el("td","n",String(tot)), el("td")); tb.append(tr);
+    if (ST.cerrados.has(ks)) continue;
     for (const d of deps){
       const Pd = D.puestos.filter(x => x.departamento === d.nombre); const nDep = activos.filter(p => p.departamento === d.nombre).length, sinPu = activos.filter(p => p.departamento === d.nombre && !p.puesto_id).length;
       const tr2 = el("tr"); const td = el("td",null,d.nombre); td.style.paddingLeft = "28px"; td.style.fontWeight = "600";
       const ac = el("td"); if (ed){ ac.append(btn("Editar", () => editarDepartamento(d)), " "); if (!Pd.length && !D.personas.some(p => p.departamento === d.nombre)) ac.append(btn("Eliminar", async () => { if (!confirm(`¿Eliminar el departamento «${d.nombre}»?`)) return; const r = await sch().from("departamentos").delete().eq("nombre", d.nombre); if (r.error){ toast("No se ha podido eliminar"); return; } recargar(); })); }
+      const kd = ks + "|d:" + d.nombre; if (Pd.length) td.append(` (${Pd.length} puesto${Pd.length === 1 ? "" : "s"})`); tog(tr2, td, kd, Pd.length);
       tr2.append(td, el("td","n",String(nDep) + (sinPu ? ` (${sinPu} sin puesto)` : "")), ac); tb.append(tr2);
+      if (ST.cerrados.has(kd)) continue;
       if (!Pd.length){ const tr3 = el("tr"); const x = el("td",null,"Sin puestos: créalos arriba en «2 · Nuevo puesto»"); x.style.cssText = "padding-left:52px;color:var(--ink-3)"; tr3.append(x, el("td"), el("td")); tb.append(tr3); }
       for (const pu of Pd.sort((a,b) => a.nombre < b.nombre ? -1 : 1)){
         const tr3 = el("tr"); const td3 = el("td",null,pu.nombre + (pu.activo ? "" : " (inactivo)") + (k && pu.clasificacion !== k ? ` · figura como ${pu.clasificacion}` : "")); td3.style.paddingLeft = "52px"; if (k && pu.clasificacion !== k) td3.style.color = "var(--red)";
@@ -720,10 +728,11 @@ function arbolPlantilla(L){
   return out;
 }
 // Controles para agrupar y desplegar el árbol (estado: conjunto de grupos cerrados)
-function ctrlArbol(c, st, nodos){
+function ctrlArbol(c, st, nodos, max){
+  max = max == null ? 3 : max;
   const d = el("div","fld"); const s = el("div","seg");
-  for (const [n, l] of [[0,"Sección"],[1,"Departamento"],[2,"Puesto"],[3,"Trabajadores"]]){ const b = el("button",null,l); b.type = "button"; b.title = n === 3 ? "Desplegar todo" : `Agrupar hasta ${l.toLowerCase()}`;
-    b.addEventListener("click", () => { st.cerrados = new Set(nodos.filter(x => x.nivel === n && n < 3).map(x => x.key)); st.nivel = n; render(); }); b.setAttribute("aria-pressed", String(st.nivel === n)); s.append(b); }
+  for (const [n, l] of [[0,"Sección"],[1,"Departamento"],[2,"Puesto"],[3,"Trabajadores"]].slice(0, max + 1)){ const b = el("button",null,l); b.type = "button"; b.title = n === max ? "Desplegar todo" : `Agrupar hasta ${l.toLowerCase()}`;
+    b.addEventListener("click", () => { st.cerrados = new Set(nodos.filter(x => x.nivel === n && n < max).map(x => x.key)); st.nivel = n; render(); }); b.setAttribute("aria-pressed", String(st.nivel === n)); s.append(b); }
   d.append(el("span",null,"Desplegar hasta"), s); c.append(d);
 }
 const visibleNodo = (n, st) => !n.anc.some(k => st.cerrados.has(k));
