@@ -64,6 +64,22 @@
   </form>
 </dialog>
 
+<dialog id="dlgNav" class="wide">
+  <div class="navdlg">
+    <h2>Navieras</h2>
+    <p class="sub">Lista de navieras para elegir en los pedidos. El contacto, el teléfono y el correo son opcionales.</p>
+    <div id="navTabla" class="tblwrap" style="max-height:50vh"></div>
+    <form id="navAlta" class="navalta">
+      <input id="nvNombre" placeholder="Naviera *" autocomplete="off" aria-label="Nombre de la naviera">
+      <input id="nvContacto" placeholder="Persona de contacto" autocomplete="off" aria-label="Persona de contacto">
+      <input id="nvTelefono" placeholder="Teléfono" autocomplete="off" aria-label="Teléfono">
+      <input id="nvEmail" placeholder="Correo" autocomplete="off" aria-label="Correo">
+      <button class="btn primary">Añadir</button>
+    </form>
+    <span class="err" id="navErr"></span>
+    <div class="actions"><button type="button" class="btn" id="navCerrar">Cerrar</button></div>
+  </div>
+</dialog>
 <dialog id="dlgFp">
   <form method="dialog" id="fFp">
     <h2>Nueva forma de pago</h2>

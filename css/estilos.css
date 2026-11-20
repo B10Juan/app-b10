@@ -788,3 +788,14 @@ dialog.ficha-cli{max-width:860px}
 .usrtbl td.nv.no{color:var(--ink-3)}
 .usrtbl tr.off td{opacity:.55}
 .usrtbl tbody tr{cursor:pointer}
+
+/* ---- Planificador: navieras ---- */
+dialog#dlgNav{max-width:min(900px,96vw);width:900px}
+.navdlg{padding:20px 22px}
+.navtbl td input{width:100%;border:1px solid var(--line-strong);border-radius:5px;padding:4px 6px;font:inherit;background:var(--surface)}
+.navtbl td.acc{white-space:nowrap;text-align:right}
+.navtbl td.acc .btn{margin-left:4px}
+.navalta{display:grid;grid-template-columns:1.2fr 1.2fr 1fr 1.3fr auto;gap:8px;margin-top:12px}
+.navalta input{border:1px solid var(--line-strong);border-radius:6px;padding:7px 10px;background:var(--surface-2);font:inherit}
+@media (max-width:720px){.navalta{grid-template-columns:1fr}}
+.hdr select.navsel{width:100%}

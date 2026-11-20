@@ -472,7 +472,7 @@ function orderCard(o,sid,c){
   const dIn=f=>{const i=el("input"); i.type="date"; i.value=o[f]||""; i.disabled=ro; i.dataset.k=f+"|"+o._id;
     i.addEventListener("change",()=>{if(f==="eta"&&!i.value){toast("La ETA es obligatoria: sin ella el pedido no se puede situar en el calendario"); render(); return;}
       const n=Object.assign(clone(o),{[f]:i.value}); saveOrder(n); if(f==="eta") toast(`Entrada en almacén movida a ${wLabel(od(n,sid).entryW)}`);}); return i;};
-  const iNav=el("input"); iNav.value=o.naviera||""; iNav.setAttribute("list","navieras"); iNav.disabled=ro; iNav.dataset.k="nav|"+o._id; iNav.addEventListener("change",()=>saveOrder(Object.assign(clone(o),{naviera:iNav.value.trim()})));
+  const iNav=selNaviera(o, ro);
   const iSz=el("select"); iSz.disabled=ro; const e0=el("option",null,"Sin indicar"); e0.value=""; iSz.append(e0); for(const [v,l] of SIZES){const op=el("option",null,l); op.value=v; iSz.append(op);} iSz.value=o.tamano||""; iSz.addEventListener("change",()=>saveOrder(Object.assign(clone(o),{tamano:iSz.value})));
   const tot=el("div","tot",fmtE2(total(o))); if(o.mod) tot.append(el("s",null,fmtE2(total(o,true))));
   const iFp=el("input"); iFp.type="date"; iFp.value=o.fechaPedido||""; iFp.disabled=ro; iFp.dataset.k="fped|"+o._id; iFp.addEventListener("change",()=>saveOrder(Object.assign(clone(o),{fechaPedido:iFp.value||""})));
@@ -677,16 +677,18 @@ const chk = r => { if (r && r.error) throw r.error; return r; };
 async function cargar(){
   S.loading = true;
   try{
-    const [pv, ap, pr, pe, st, fpg, em] = await Promise.all([
+    const [pv, ap, pr, pe, st, fpg, nav, em] = await Promise.all([
       sb.schema("maestros").from("proveedores").select("id,codigo_ax,nombre,nombre_corto,alias,moneda,grupo_compra,es_importacion,contacto,email,plazo_semanas,transito_semanas,despacho_semanas,forma_pago_id,cobertura_semanas"),
       sb.schema("maestros").from("articulo_proveedor").select("id,articulo_id,proveedor_id,precio,moneda,uds_pallet,orden,clave_stock,a_extinguir,venta_media_semanal,stock_seguridad,stock_manual,descripcion,modelo,articulos(id,codigo_ax,descripcion,modelo,estado)").eq("planificar", true).range(0, 4999),
       sb.schema("compras").from("prevision_venta").select("articulo_proveedor_id,semana,unidades").gte("semana", key(today)).range(0, 9999),
       sb.schema("compras").from("pedidos").select("*").order("eta"),
       sb.schema("ax").from("v_stock_actual").select("clave,disponible_real,disponible,fecha_stock,fichero").range(0, 9999),
       sb.schema("compras").from("formas_pago").select("id,nombre,tramos,orden,activa").order("orden").order("id"),
+      sb.schema("compras").from("navieras").select("id,nombre,contacto,telefono,email").order("nombre"),
       sb.schema("compras").from("entradas_manuales").select("id,articulo_proveedor_id,semana,cantidad,motivo,comentario").gte("semana", key(addW(today,-1))).range(0, 9999),
     ]);
     for (const r of [pv, ap, pr, pe, st, em, fpg]) chk(r);
+    state.navieras = nav.error ? null : nav.data;   // null = tabla aún no creada (migración 33): se usa texto libre
     state.formas = fpg.data.filter(f => f.activa !== false).map(f => ({ id:f.id, nombre:f.nombre, tramos:(f.tramos || []).map(t => ({ pct:+t.pct, ref:t.ref, dias:+t.dias || 0 })), orden:f.orden }));
     const man = {}; for (const e of em.data){ (man[e.articulo_proveedor_id] = man[e.articulo_proveedor_id] || {})[e.semana] = { id:e.id, cantidad:+e.cantidad, motivo:e.motivo, comentario:e.comentario || "" }; }
     const ov = {}; for (const r of pr.data){ (ov[r.articulo_proveedor_id] = ov[r.articulo_proveedor_id] || {})[r.semana] = +r.unidades; }
@@ -778,6 +780,77 @@ function filasMenu(c){
   const ess=el("button","btn small","Solo las principales"); ess.type="button"; ess.title="Venta prevista, entradas en almacén y stock disponible"; ess.addEventListener("click",()=>{hide.clear(); for(const [k] of rows) if(!["dem","entry","man","real"].includes(k)) hide.add(k); render();});
   ac.append(all,ess); pn.append(ac); d.append(pn); return d;
 }
+/* ===== Navieras: desplegable y tabla ===== */
+function selNaviera(o, ro){
+  if(!state.navieras){ const i=el("input"); i.value=o.naviera||""; i.setAttribute("list","navieras"); i.disabled=ro; i.dataset.k="nav|"+o._id; i.addEventListener("change",()=>saveOrder(Object.assign(clone(o),{naviera:i.value.trim()}))); return i; }
+  const s=el("select","navsel"); s.disabled=ro; s.dataset.k="nav|"+o._id; s.setAttribute("aria-label","Naviera");
+  const add=(v,l)=>{const op=el("option",null,l); op.value=v; s.append(op);};
+  add("","— Sin naviera —");
+  const nombres=state.navieras.map(n=>n.nombre);
+  if(o.naviera&&!nombres.some(n=>n.toLowerCase()===o.naviera.toLowerCase())) add(o.naviera,o.naviera+" (no está en la tabla)");
+  for(const n of state.navieras) add(n.nombre,n.nombre);
+  add("__tabla",state.canWrite?"＋ Gestionar navieras…":"Ver la tabla de navieras…");
+  const cur=state.navieras.find(n=>n.nombre.toLowerCase()===(o.naviera||"").toLowerCase()); s.value=cur?cur.nombre:(o.naviera||"");
+  if(cur&&(cur.contacto||cur.telefono||cur.email)) s.title=[cur.contacto,cur.telefono,cur.email].filter(Boolean).join(" · ");
+  s.addEventListener("change",()=>{ if(s.value==="__tabla"){ s.value=cur?cur.nombre:(o.naviera||""); openNavieras(nombre=>saveOrder(Object.assign(clone(o),{naviera:nombre}))); return; } saveOrder(Object.assign(clone(o),{naviera:s.value})); });
+  return s;
+}
+let navCtx=null;
+function openNavieras(onElegir){ navCtx={onElegir, edit:null}; pintarNavieras(); $("#dlgNav").showModal(); }
+function pintarNavieras(){
+  const box=$("#navTabla"); box.textContent=""; const ro=!state.canWrite;
+  const t=el("table","tbl navtbl"), th=el("thead"), hr=el("tr");
+  for(const x of ["Naviera","Persona de contacto","Teléfono","Correo",""]) hr.append(el("th",null,x)); th.append(hr); t.append(th);
+  const tb=el("tbody");
+  const usos=n=>state.orders.filter(o=>(o.naviera||"").toLowerCase()===n.nombre.toLowerCase()).length;
+  for(const n of state.navieras){
+    const tr=el("tr");
+    if(navCtx.edit===n.id){
+      const ins={}; for(const k of ["nombre","contacto","telefono","email"]){ const i=el("input"); i.value=n[k]||""; i.dataset.f=k; ins[k]=i; const td=el("td"); td.append(i); tr.append(td); }
+      const td=el("td","acc"); const g=el("button","btn small primary","Guardar"); g.type="button"; g.addEventListener("click",()=>guardarNaviera(n,ins)); const c=el("button","btn small","Cancelar"); c.type="button"; c.addEventListener("click",()=>{navCtx.edit=null; pintarNavieras();}); td.append(g,c); tr.append(td);
+    } else {
+      tr.append(el("td",null,n.nombre), el("td",null,n.contacto||""), el("td",null,n.telefono||""), el("td",null,n.email||""));
+      const td=el("td","acc");
+      if(navCtx.onElegir){ const u=el("button","btn small","Elegir"); u.type="button"; u.addEventListener("click",()=>{ $("#dlgNav").close(); navCtx.onElegir(n.nombre); }); td.append(u); }
+      if(!ro){ const e=el("button","btn small","Editar"); e.type="button"; e.addEventListener("click",()=>{navCtx.edit=n.id; pintarNavieras();});
+        const d=el("button","btn small danger","Eliminar"); d.type="button"; d.addEventListener("click",()=>eliminarNaviera(n, usos(n))); td.append(e,d); }
+      const k=usos(n); if(k) td.append(el("small","hint",` ${k} pedido${k===1?"":"s"}`));
+      tr.append(td);
+    }
+    tb.append(tr);
+  }
+  if(!state.navieras.length){ const tr=el("tr"), td=el("td","empty","Todavía no hay navieras."); td.colSpan=5; tr.append(td); tb.append(tr); }
+  t.append(tb); box.append(t);
+  $("#navAlta").hidden=ro;
+}
+async function guardarNaviera(n, ins){
+  const v={ nombre:ins.nombre.value.trim(), contacto:ins.contacto.value.trim()||null, telefono:ins.telefono.value.trim()||null, email:ins.email.value.trim()||null };
+  if(!v.nombre){ $("#navErr").textContent="El nombre de la naviera es obligatorio."; return; }
+  if(state.navieras.some(x=>x.id!==n.id&&x.nombre.toLowerCase()===v.nombre.toLowerCase())){ $("#navErr").textContent="Ya existe una naviera con ese nombre."; return; }
+  if(v.email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.email)){ $("#navErr").textContent="El correo no es válido."; return; }
+  const r=await sb.schema("compras").from("navieras").update(v).eq("id",n.id); if(r.error){ $("#navErr").textContent=msgErr(r.error); return; }
+  // si cambia el nombre, los pedidos que la usaban pasan al nombre nuevo
+  if(v.nombre!==n.nombre) for(const o of state.orders.filter(o=>(o.naviera||"").toLowerCase()===n.nombre.toLowerCase())) saveOrder(Object.assign(clone(o),{naviera:v.nombre}));
+  Object.assign(n,v); navCtx.edit=null; $("#navErr").textContent=""; pintarNavieras(); render(); toast("Naviera guardada");
+}
+async function eliminarNaviera(n, k){
+  if(!confirm(k?`«${n.nombre}» está en ${k} pedido${k===1?"":"s"}. Se quitará de la lista, pero esos pedidos la conservan. ¿Eliminar?`:`¿Eliminar la naviera «${n.nombre}»?`)) return;
+  const r=await sb.schema("compras").from("navieras").delete().eq("id",n.id); if(r.error){ toast(msgErr(r.error)); return; }
+  state.navieras=state.navieras.filter(x=>x.id!==n.id); pintarNavieras(); render(); toast("Naviera eliminada");
+}
+$("#navCerrar").addEventListener("click",()=>$("#dlgNav").close());
+$("#navAlta").addEventListener("submit",async ev=>{
+  ev.preventDefault(); const v={ nombre:$("#nvNombre").value.trim(), contacto:$("#nvContacto").value.trim()||null, telefono:$("#nvTelefono").value.trim()||null, email:$("#nvEmail").value.trim()||null };
+  if(!v.nombre){ $("#navErr").textContent="El nombre de la naviera es obligatorio."; return; }
+  if(state.navieras.some(x=>x.nombre.toLowerCase()===v.nombre.toLowerCase())){ $("#navErr").textContent="Ya existe una naviera con ese nombre."; return; }
+  if(v.email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.email)){ $("#navErr").textContent="El correo no es válido."; return; }
+  const r=await sb.schema("compras").from("navieras").insert(v).select("id,nombre,contacto,telefono,email").single();
+  if(r.error){ $("#navErr").textContent=msgErr(r.error); return; }
+  state.navieras.push(Object.assign({id:Date.now()},v,r.data||{},{nombre:(r.data&&r.data.nombre)||v.nombre})); state.navieras.sort((a,b)=>a.nombre.localeCompare(b.nombre));
+  for(const id of ["nvNombre","nvContacto","nvTelefono","nvEmail"]) $("#"+id).value=""; $("#navErr").textContent=""; pintarNavieras(); toast(`Naviera añadida: ${v.nombre}`);
+  if(navCtx&&navCtx.onElegir&&confirm(`¿Asignar «${v.nombre}» a este pedido?`)){ $("#dlgNav").close(); navCtx.onElegir(v.nombre); } else render();
+});
+
 /* ===== Formas de pago: selector y alta ===== */
 function selForma(val, onChange, porPedido, supFp){
   const s=el("select","fpsel");
