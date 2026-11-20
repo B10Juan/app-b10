@@ -1,8 +1,8 @@
 // APP B10 · Personas: costes de personal (nómina + ETT) y formulario de introducción de datos (personas y estructura)
 // Datos en el esquema «rrhh» de Supabase (migraciones 19 a 23).
 // Permisos: «rrhh» para los costes; «datos» (o «rrhh») para las fichas de personas y la estructura de departamentos.
-import { sb, render, cabecera, nivel } from "../app.js";
-import { el, toast, sheet, saveXlsx, stamp, exportarVista } from "../util.js";
+import { sb, render, cabecera, nivel, ctx } from "../app.js";
+import { el, toast, sheet, saveXlsx, stamp, exportarVista, ddMulti } from "../util.js";
 
 const MES = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
 const COL = { ord:"#7A8C99", ind:"#C2362B", ext:"#B9A27A", ett:"#0F8A86" };
@@ -771,13 +771,16 @@ function tabPlantilla(box){
 // ---------- Evolución de la plantilla por meses o semanas ----------
 function tabEvolucion(box){
   const D = R.data, hoy = hoyKey;
-  const F = R.fv || (R.fv = { escala:"mes", desde:null, hasta:hoy.slice(0,7), medida:"total", vinculo:"", cerrados:null, nivel:2 });
+  const F = R.fv || (R.fv = { escala:"mes", desde:null, hasta:hoy.slice(0,7), medidas:["total"], vinculo:"", cerrados:null, nivel:2 });
+  if (!Array.isArray(F.medidas)) F.medidas = [F.medida || "total"];
+  const MS = MEDIDAS_PL.filter(m => F.medidas.includes(m[0])), CORTO = { total:"Total", baja:"Bajas", activa:"Activas", permiso:"Permisos", trabaja:"Trabajando" };
   if (!F.desde){ const d = new Date(hoy + "T00:00:00Z"); d.setUTCMonth(d.getUTCMonth() - 11); F.desde = d.toISOString().slice(0,7); }
   const c = el("div","ctrl"); const fl = (lab, n) => { const d = el("div","fld"); d.append(el("span",null,lab), n); return d; };
   const seg = (key, opts) => { const s = el("div","seg"); for (const [k,l] of opts){ const b = el("button",null,l); b.type = "button"; b.setAttribute("aria-pressed", String(F[key] === k)); b.addEventListener("click", () => { F[key] = k; render(); }); s.append(b); } return s; };
   const iD = el("input"); iD.type = "month"; iD.value = F.desde; iD.addEventListener("change", () => { if (iD.value) { F.desde = iD.value; render(); } });
   const iH = el("input"); iH.type = "month"; iH.value = F.hasta; iH.addEventListener("change", () => { if (iH.value) { F.hasta = iH.value; render(); } });
-  const sm = el("select"); for (const [k,l] of MEDIDAS_PL) sm.append(new Option(l, k)); sm.value = F.medida; sm.addEventListener("change", () => { F.medida = sm.value; render(); });
+  const sm = ddMulti(ctx.ui, "evo-dato", "Dato", MEDIDAS_PL.map(([v, l]) => ({ v, l })), F.medidas, n => { F.medidas = n.length ? MEDIDAS_PL.map(m => m[0]).filter(k => n.includes(k)) : ["total"]; render(); }, render);
+  { const bt = sm.querySelector(".ddb"); bt.textContent = bt.textContent.replace(/^Dato: /, ""); const q = sm.querySelector(".ddp input[type=search]"); if (q) q.remove(); }
   c.append(fl("Escala", seg("escala",[["mes","Meses"],["semana","Semanas"]])), fl("Desde", iD), fl("Hasta", iH), fl("Dato", sm), fl("Vínculo", seg("vinculo",[["","Todos"],["Nómina","Nómina"],["ETT","ETT"]])));
   // filtros de sección, departamento y puesto (cada uno ofrece solo lo que cabe en el anterior)
   const ORDS = ["M.O.E","M.O.I","M.O.D"], secDe = p => ORDS.includes(p.clasificacion) ? p.clasificacion : "-";
@@ -804,16 +807,19 @@ function tabEvolucion(box){
   const vivos = L.filter(p => P.some(x => estadoDia(p, x.dia).e !== "fuera"));
   const nodos = arbolPlantilla(vivos); if (!F.cerrados) F.cerrados = new Set(nodos.filter(n => n.nivel === 2).map(n => n.key));
   ctrlArbol(c, F, nodos); box.append(c);
-  const tw = el("div","tblwrap"); const t = el("table","tbl fija"); const hr = el("tr"); hr.append(el("th",null,"Sección › departamento › puesto")); for (const x of P) hr.append(el("th","n",x.lab)); t.append(el("thead")); t.tHead.append(hr);
+  const tw = el("div","tblwrap"); const t = el("table","tbl fija"); const hr = el("tr"); hr.append(el("th",null,"Sección › departamento › puesto")); t.append(el("thead")); t.tHead.append(hr);
+  if (MS.length === 1) for (const x of P) hr.append(el("th","n",x.lab));
+  else { const h2 = el("tr"); h2.append(el("th")); for (const x of P){ const th = el("th",null,x.lab); th.colSpan = MS.length; th.style.cssText = "text-align:center;border-left:1px solid var(--line)"; hr.append(th);
+      MS.forEach(([k], i) => { const s = el("th","n",CORTO[k]); if (!i) s.style.borderLeft = "1px solid var(--line)"; h2.append(s); }); } t.tHead.append(h2); }
   const tb = el("tbody");
   const fila = (n, txt, Pp) => { const tr = el("tr", !n || n.nivel === 0 ? "wk" : null); const td = el("td",null,txt); if (n){ celdaArbol(n, F, td); if (n.nivel === 1) td.style.fontWeight = "700"; if (n.nivel === 2) td.style.fontWeight = "500"; } tr.append(td);
-    for (const x of P){ const v = cuentaDia(Pp, x.dia)[F.medida]; tr.append(el("td","n", v ? String(v) : "")); }
+    for (const x of P){ const r = cuentaDia(Pp, x.dia); MS.forEach(([k], i) => { const v = r[k], td = el("td","n", v ? String(v) : ""); if (MS.length > 1 && !i) td.style.borderLeft = "1px solid var(--line)"; tr.append(td); }); }
     if (n){ tr.style.cursor = "pointer"; if (n.persona){ tr.title = "Abrir la ficha"; tr.addEventListener("click", () => ficha(n.persona)); } else { tr.title = "Pulsa para agrupar o desplegar"; tr.addEventListener("click", () => alternar(n, F)); } }
     tb.append(tr); };
   for (const n of nodos) if (visibleNodo(n, F)) fila(n, n.persona ? n.txt + (n.persona.tipo_vinculo === "ETT" ? " · ETT" : "") : n.txt, n.P);
-  if (vivos.length) fila(null, "Total", vivos); else { const tr = el("tr"); const x = el("td","empty","No hay personas en ese periodo."); x.colSpan = P.length + 1; tr.append(x); tb.append(tr); }
+  if (vivos.length) fila(null, "Total", vivos); else { const tr = el("tr"); const x = el("td","empty","No hay personas en ese periodo."); x.colSpan = P.length * MS.length + 1; tr.append(x); tb.append(tr); }
   t.append(tb); tw.append(t); box.append(tw);
-  box.append(el("p","hint",`${MEDIDAS_PL.find(m => m[0] === F.medida)[1]} al final de cada ${F.escala === "mes" ? "mes" : "semana"} (el periodo en curso, a día de hoy), según las fechas de alta y baja definitiva, las ausencias y los permisos de cada ficha. La persona se cuenta en su sección, departamento y puesto actuales. Las fichas sin fecha de alta cuentan en todo el periodo.`));
+  box.append(el("p","hint",`${MS.map(m => m[1]).join(", ")} al final de cada ${F.escala === "mes" ? "mes" : "semana"} (el periodo en curso, a día de hoy), según las fechas de alta y baja definitiva, las ausencias y los permisos de cada ficha. La persona se cuenta en su sección, departamento y puesto actuales. Las fichas sin fecha de alta cuentan en todo el periodo.`));
 }
 
 // Desplegable de departamentos agrupados por sección
