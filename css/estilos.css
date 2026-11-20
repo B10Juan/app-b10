@@ -799,3 +799,13 @@ dialog#dlgNav{max-width:min(900px,96vw);width:900px}
 .navalta input{border:1px solid var(--line-strong);border-radius:6px;padding:7px 10px;background:var(--surface-2);font:inherit}
 @media (max-width:720px){.navalta{grid-template-columns:1fr}}
 .hdr select.navsel{width:100%}
+
+/* Evolución del stock: buscador y cabecera alineada (la línea inferior de «Descripción» a la altura del resto) */
+.rctl .rbusq{height:34px;min-width:240px;border:1px solid var(--line-strong);border-radius:6px;padding:0 10px;background:var(--surface);font:inherit;font-size:14px}
+.rtbl thead tr:not(.grp) th{box-shadow:none;border-bottom:1px solid var(--line-strong);height:46px;box-sizing:border-box}
+.rtbl thead tr:not(.grp) th.f2{box-shadow:inset -1px 0 0 var(--line)}
+.rtbl thead tr:not(.grp) th.f1{box-shadow:none}
+/* Proveedores: título de la lista bajo el buscador */
+.provtit{margin:18px 0 0}
+.busart{margin-top:6px;padding-bottom:6px}
+.tesbl thead tr:not(.grp) th.f1{box-shadow:inset -1px 0 0 var(--line)}

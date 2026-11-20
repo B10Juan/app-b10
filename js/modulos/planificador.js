@@ -170,8 +170,9 @@ function renderHome(app){
     }
     a.append(t); g.append(a);
   }
-  app.append(g);
   buscarArticulo(app);
+  const tp=el("h2","sec pad provtit","Proveedores"); app.append(tp);
+  app.append(g);
 }
 const PARAMS=[["plazo","Pedido a puerto","sem"],["transito","Tránsito","sem"],["despacho","Despacho","sem"],["cobertura","Cobertura por pedido","sem"]];
 function renderSupHeader(app,r){
@@ -903,6 +904,7 @@ const norm = x => (x||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f
 function buscarArticulo(app){
   const box=el("section","busart pad");
   box.append(el("h2","sec","Búsqueda por artículo"));
+  // (va encima de las tarjetas de proveedores)
   box.append(el("p","secsub","Busca por código o descripción en todos los proveedores y revisa la previsión del artículo sin entrar en su proveedor."));
   const bar=el("div","toolbar"); bar.style.padding="6px 0 10px";
   const q=el("input","search"); q.type="search"; q.placeholder="Código o descripción (por ejemplo: vela 1700, P-COM-BAN-004)"; q.value=BA.q; q.dataset.k="busart"; q.setAttribute("aria-label","Buscar artículo por código o descripción");
@@ -939,7 +941,7 @@ function buscarArticulo(app){
 }
 
 /* ===== Resumen por proveedor: stock de seguridad y stock previsto ===== */
-const RS = { abiertos:new Set(), semanas:12, medida:"uds", tipo:"disp" };
+const RS = { abiertos:new Set(), semanas:12, medida:"uds", tipo:"disp", q:"" };
 // Stock real = columna «Disponible» del fichero de AX; stock disponible = «Disponible real». Los negativos cuentan como cero.
 const stHoyRaw = p => RS.tipo === "real" ? (p.stockAX ? (p.stockReal || 0) : (p.stock || 0)) : (p.stock || 0);
 const stHoy = p => Math.max(0, stHoyRaw(p));
@@ -968,9 +970,15 @@ function resumenProveedores(app){
   allOpen.addEventListener("click", () => { if (RS.abiertos.size) RS.abiertos.clear(); else for (const s of state.suppliers) if (prodsOf(s._id).length) RS.abiertos.add(s._id); render(); });
   const ex = el("button","btn small","Exportar a Excel"); ex.addEventListener("click", exportResumen);
   const leg = el("div","rleg"); leg.append(el("span","l-under","bajo stock de seguridad"), el("span","l-neg","rotura"), el("span","l-low","cubre menos de 4 semanas"));
-  ctl.append(l0, l1, l2, allOpen, ex, leg); box.append(ctl);
+  const qs = el("input","rbusq"); qs.type = "search"; qs.placeholder = "Buscar referencia o descripción"; qs.value = RS.q; qs.dataset.k = "rs-q"; qs.setAttribute("aria-label","Buscar artículo por referencia o descripción");
+  qs.addEventListener("input", () => { RS.q = qs.value; render(); });
+  ctl.append(qs, l0, l1, l2, allOpen, ex, leg); box.append(ctl);
   const W = weeks(state.suppliers[0] ? state.suppliers[0]._id : "").slice(0, RS.semanas);
-  const sups = state.suppliers.filter(s => prodsOf(s._id).length).sort((a,b) => (a.name||"").localeCompare(b.name||""));
+  const nq = x => (x||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+  const words = nq(RS.q).split(/\s+/).filter(Boolean);
+  const coincide = p => !words.length || words.every(w => nq(`${p.codigo_ax||""} ${p.clave||""} ${p.name||""} ${p.model||""}`).includes(w));
+  const prodsRS = sid => prodsOf(sid).filter(coincide);
+  const sups = state.suppliers.filter(s => prodsRS(s._id).length).sort((a,b) => (a.name||"").localeCompare(b.name||""));
   const tw = el("div","rwrap"); const t = el("table","rtbl");
   // cabecera en dos niveles y títulos en dos renglones
   const th = el("thead");
@@ -988,14 +996,14 @@ function resumenProveedores(app){
   const fmtC = (v, mon) => v == null || !isFinite(v) ? "" : fmtN(v, 0) + (mon === "USD" ? " $" : " €");
   const cel = (txt, cls) => { const td = el("td", cls || ""); const sp = el("span", null, txt); td.append(sp); return td; };
   for (const s of sups){
-    const c = cfg(s._id), mon = c.moneda || "EUR", ps = prodsOf(s._id), Ws = weeks(s._id);
+    const c = cfg(s._id), mon = c.moneda || "EUR", ps = prodsRS(s._id), Ws = weeks(s._id);
     const rows = ps.map(p => { const r = calc(p, s._id); const idx = W.map(w => Ws.findIndex(x => key(x) === key(w))); return { p, r, prev: idx.map(i => i >= 0 ? stPrev(p, r.net[i], r, i) : null), raw: idx.map(i => i >= 0 ? stPrevRaw(p, r.net[i], r, i) : null) }; });
     const ssU = ps.reduce((a,p) => a + (p.ss || 0), 0), ssC = ps.reduce((a,p) => a + (p.ss || 0) * (p.price || 0), 0);
     const stU = ps.reduce((a,p) => a + Math.max(0, stHoy(p)), 0), stC = ps.reduce((a,p) => a + Math.max(0, stHoy(p)) * (p.price || 0), 0);
     const wk = W.map((_,i) => rows.reduce((a,x) => a + (RS.medida === "coste" ? (x.prev[i] || 0) * (x.p.price || 0) : (x.prev[i] || 0)), 0));
     const rot = W.map((_,i) => rows.some(x => !x.p.extinguir && x.raw[i] != null && x.raw[i] < -1e-9));
     add(mon,"ss",ssU); add(mon,"ssc",ssC); add(mon,"st",stU); add(mon,"stc",stC); add(mon,"w",wk);
-    const open = RS.abiertos.has(s._id);
+    const open = RS.abiertos.has(s._id) || words.length > 0;   // con búsqueda se ven los artículos directamente
     const tr = el("tr","rsup"+(open?" open":"")); tr.title = open ? "Plegar" : "Ver los artículos"; tr.addEventListener("click", () => { open ? RS.abiertos.delete(s._id) : RS.abiertos.add(s._id); render(); });
     const c0 = el("td","l fix f1 sup"); c0.colSpan = 2; c0.append(el("span","chev", open ? "▾" : "▸"), el("b",null,s.name), el("small",null,` ${ps.length} art. · ${mon}`));
     tr.append(c0, cel(""), cel(""), cel(fmtN(ssU,0),"gsl"), cel(fmtC(ssC,mon)), cel(""), cel(fmtN(stU,0),"gsl"), cel(fmtC(stC,mon)));
@@ -1025,14 +1033,15 @@ function resumenProveedores(app){
     T.w.forEach((v,i) => fr.append(cel(RS.medida === "coste" ? fmtC(v,mon) : fmtN(v,0), "wk"+(i===0?" gsl":"")))); tf.append(fr); }
   t.append(tf); tw.append(t); box.append(tw);
   box.append(el("p","hint","Pulsa un proveedor para ver sus artículos. El stock de seguridad se puede cambiar aquí y se guarda en la planificación del proveedor. «Semanas que cubre» = stock de seguridad ÷ venta media semanal. El stock negativo (rotura) se valora como cero y se marca en rojo. Stock disponible = «Disponible real» del fichero de AX; stock real = «Disponible». Los totales se separan por moneda."));
-  RS._W = W; RS._sups = sups;
+  RS._W = W; RS._sups = sups; RS._match = coincide;
+  if (!sups.length){ const tr = el("tr"), td = el("td","empty", "Ningún artículo coincide con la búsqueda."); td.colSpan = 9 + W.length; td.style.textAlign = "left"; tr.append(td); tb.append(tr); }
   app.append(box);
 }
 function exportResumen(){
   const W = RS._W || [], wb = XLSX.utils.book_new();
   const A = [["Proveedor","Moneda","Código","Descripción","Modelo","A extinguir","Precio","Venta media semanal","Stock seguridad","Coste stock seguridad","Semanas que cubre",RS.tipo==="real"?"Stock real":"Stock disponible",RS.tipo==="real"?"Coste stock real":"Coste stock disponible", ...W.map(w => `${wLabel(w)} ${dShort(w)}`)]];
   for (const s of RS._sups || []){ const mon = cfg(s._id).moneda || "EUR", Ws = weeks(s._id);
-    for (const p of prodsOf(s._id)){ const r = calc(p, s._id); const prev = W.map(w => { const i = Ws.findIndex(x => key(x) === key(w)); return i >= 0 ? Math.round(stPrev(p, r.net[i], r, i)*100)/100 : ""; });
+    for (const p of prodsOf(s._id).filter(RS._match || (() => true))){ const r = calc(p, s._id); const prev = W.map(w => { const i = Ws.findIndex(x => key(x) === key(w)); return i >= 0 ? Math.round(stPrev(p, r.net[i], r, i)*100)/100 : ""; });
       A.push([s.name, mon, dispCode(p), p.name, p.model || "", p.extinguir ? "Sí" : "", p.price ?? "", p.avg ?? "", p.ss ?? "", p.ss != null && p.price != null ? Math.round(p.ss*p.price*100)/100 : "", p.avg ? Math.round((p.ss||0)/p.avg*10)/10 : "", stHoy(p), p.price != null ? Math.round(Math.max(0,stHoy(p))*p.price*100)/100 : "", ...prev]); } }
   XLSX.utils.book_append_sheet(wb, sheet(A, [24,6,18,34,12,10,10,12,12,14,12,10,14, ...W.map(() => 9)]), "Resumen por proveedor");
   saveXlsx(wb, `Resumen_stock_proveedores_${stamp()}.xlsx`);
