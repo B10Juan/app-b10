@@ -779,6 +779,18 @@ function tabEvolucion(box){
   const iH = el("input"); iH.type = "month"; iH.value = F.hasta; iH.addEventListener("change", () => { if (iH.value) { F.hasta = iH.value; render(); } });
   const sm = el("select"); for (const [k,l] of MEDIDAS_PL) sm.append(new Option(l, k)); sm.value = F.medida; sm.addEventListener("change", () => { F.medida = sm.value; render(); });
   c.append(fl("Escala", seg("escala",[["mes","Meses"],["semana","Semanas"]])), fl("Desde", iD), fl("Hasta", iH), fl("Dato", sm), fl("Vínculo", seg("vinculo",[["","Todos"],["Nómina","Nómina"],["ETT","ETT"]])));
+  // filtros de sección, departamento y puesto (cada uno ofrece solo lo que cabe en el anterior)
+  const ORDS = ["M.O.E","M.O.I","M.O.D"], secDe = p => ORDS.includes(p.clasificacion) ? p.clasificacion : "-";
+  const base = D.personas.filter(p => !F.vinculo || p.tipo_vinculo === F.vinculo);
+  const enSec = p => !F.fs || secDe(p) === F.fs, enDep = p => !F.fd || (p.departamento || "-") === F.fd;
+  const selF = (key, todos, vals, lab, onCh) => { const s = el("select"); s.append(new Option(todos, "")); for (const [v, t] of vals) s.append(new Option(t, v)); s.value = F[key] || ""; if (s.value !== (F[key] || "")) { F[key] = ""; s.value = ""; }
+    s.addEventListener("change", () => { F[key] = s.value; onCh && onCh(); render(); }); if (F[key]) s.classList.add("activo"); return fl(lab, s); };
+  const orden = (a, b) => a[0] === "-" ? 1 : b[0] === "-" ? -1 : a[1].localeCompare(b[1], "es");
+  const secs = [...new Set(base.map(secDe))].map(v => [v, v === "-" ? "Sin sección" : v]).sort((a, b) => a[0] === "-" ? 1 : b[0] === "-" ? -1 : ORDS.indexOf(a[0]) - ORDS.indexOf(b[0]));
+  const deps = [...new Set(base.filter(enSec).map(p => p.departamento || "-"))].map(v => [v, v === "-" ? "Sin departamento" : v]).sort(orden);
+  const pues = [...new Set(base.filter(p => enSec(p) && enDep(p)).map(p => p.puesto || "-"))].map(v => [v, v === "-" ? "Sin puesto" : v]).sort(orden);
+  c.append(selF("fs","Todas", secs, "Sección", () => { F.fd = ""; F.fpu = ""; }), selF("fd","Todos", deps, "Departamento", () => { F.fpu = ""; }), selF("fpu","Todos", pues, "Puesto"));
+  if (F.fs || F.fd || F.fpu){ const q = el("button","btn small","Quitar filtros"); q.type = "button"; q.style.alignSelf = "flex-end"; q.addEventListener("click", () => { F.fs = F.fd = F.fpu = ""; render(); }); c.append(q); }
   // periodos: cada uno se mide en su último día (o hoy si aún no ha terminado)
   const ini = F.desde <= F.hasta ? F.desde : F.hasta, fin = F.desde <= F.hasta ? F.hasta : F.desde, per = [];
   if (F.escala === "mes"){ for (let k = ini + "-01"; k.slice(0,7) <= fin; k = sigMes(k)){ const f = finMes(k); per.push({ lab:mesLab(k), dia: f > hoy ? hoy : f, futuro: k > hoy }); } }
@@ -788,7 +800,7 @@ function tabEvolucion(box){
       per.push({ lab:`S${sem} · ${lu.slice(8,10)}/${lu.slice(5,7)}`, dia: f > hoy ? hoy : f, futuro: lu > hoy }); } }
   const P = per.filter(x => !x.futuro);
   if (P.length > 160){ box.append(el("div","card empty","Demasiados periodos: acorta el rango de fechas.")); return; }
-  const L = D.personas.filter(p => !F.vinculo || p.tipo_vinculo === F.vinculo);
+  const L = base.filter(p => enSec(p) && enDep(p) && (!F.fpu || (p.puesto || "-") === F.fpu));
   const vivos = L.filter(p => P.some(x => estadoDia(p, x.dia).e !== "fuera"));
   const nodos = arbolPlantilla(vivos); if (!F.cerrados) F.cerrados = new Set(nodos.filter(n => n.nivel === 2).map(n => n.key));
   ctrlArbol(c, F, nodos); box.append(c);
