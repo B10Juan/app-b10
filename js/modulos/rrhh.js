@@ -796,15 +796,23 @@ function tabEvolucion(box){
   if (F.fs || F.fd || F.fpu){ const q = el("button","btn small","Quitar filtros"); q.type = "button"; q.style.alignSelf = "flex-end"; q.addEventListener("click", () => { F.fs = F.fd = F.fpu = ""; render(); }); c.append(q); }
   // periodos: cada uno se mide en su último día (o hoy si aún no ha terminado)
   const ini = F.desde <= F.hasta ? F.desde : F.hasta, fin = F.desde <= F.hasta ? F.hasta : F.desde, per = [];
-  if (F.escala === "mes"){ for (let k = ini + "-01"; k.slice(0,7) <= fin; k = sigMes(k)){ const f = finMes(k); per.push({ lab:mesLab(k), dia: f > hoy ? hoy : f, futuro: k > hoy }); } }
+  if (F.escala === "mes"){ for (let k = ini + "-01"; k.slice(0,7) <= fin; k = sigMes(k)){ const f = finMes(k); per.push({ lab:mesLab(k), ini:k, fin:f, dia: f > hoy ? hoy : f, futuro: k > hoy }); } }
   else { const d = new Date(ini + "-01T00:00:00Z"); d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7)); const lim = finMes(fin + "-01");
     for (; d.toISOString().slice(0,10) <= lim; d.setUTCDate(d.getUTCDate() + 7)){ const lu = d.toISOString().slice(0,10), dom = new Date(d); dom.setUTCDate(dom.getUTCDate() + 6); const f = dom.toISOString().slice(0,10);
       const j = new Date(d); j.setUTCDate(j.getUTCDate() + 3); const y0 = new Date(Date.UTC(j.getUTCFullYear(), 0, 1)); const sem = Math.ceil(((j - y0) / 86400000 + 1) / 7);
-      per.push({ lab:`S${sem} · ${lu.slice(8,10)}/${lu.slice(5,7)}`, dia: f > hoy ? hoy : f, futuro: lu > hoy }); } }
+      per.push({ lab:`S${sem} · ${lu.slice(8,10)}/${lu.slice(5,7)}`, ini:lu, fin:f, dia: f > hoy ? hoy : f, futuro: lu > hoy }); } }
   const P = per.filter(x => !x.futuro);
   if (P.length > 160){ box.append(el("div","card empty","Demasiados periodos: acorta el rango de fechas.")); return; }
   const L = base.filter(p => enSec(p) && enDep(p) && (!F.fpu || (p.puesto || "-") === F.fpu));
-  const vivos = L.filter(p => P.some(x => estadoDia(p, x.dia).e !== "fuera"));
+  // ponderación por días naturales: cada persona suma, en cada periodo, los días que está en cada situación / días del periodo
+  for (const x of P){ x.dias = []; for (const d = new Date(x.ini + "T00:00:00Z"); d.toISOString().slice(0,10) <= x.fin; d.setUTCDate(d.getUTCDate() + 1)) x.dias.push(d.toISOString().slice(0,10)); }
+  const pond = new Map();
+  for (const p of L) pond.set(p.id, P.map(x => { const o = { total:0, baja:0, activa:0, permiso:0, trabaja:0 };
+    for (const d of x.dias){ const e = estadoDia(p, d).e; if (e === "fuera") continue; o.total++; if (e === "baja") o.baja++; else { o.activa++; if (e === "permiso") o.permiso++; else o.trabaja++; } }
+    for (const k in o) o[k] /= x.dias.length || 1; return o; }));
+  const suma = (Pp, i, k) => Pp.reduce((a, p) => a + pond.get(p.id)[i][k], 0);
+  const fmtP = v => v < 0.05 ? "" : v.toLocaleString("es-ES", { minimumFractionDigits: Math.abs(v - Math.round(v)) < 0.05 ? 0 : 1, maximumFractionDigits:1 });
+  const vivos = L.filter(p => pond.get(p.id).some(o => o.total > 0));
   const nodos = arbolPlantilla(vivos); if (!F.cerrados) F.cerrados = new Set(nodos.filter(n => n.nivel === 2).map(n => n.key));
   ctrlArbol(c, F, nodos); box.append(c);
   const tw = el("div","tblwrap"); const t = el("table","tbl fija"); const hr = el("tr"); hr.append(el("th",null,"Sección › departamento › puesto")); t.append(el("thead")); t.tHead.append(hr);
@@ -813,13 +821,13 @@ function tabEvolucion(box){
       MS.forEach(([k], i) => { const s = el("th","n",CORTO[k]); if (!i) s.style.borderLeft = "1px solid var(--line)"; h2.append(s); }); } t.tHead.append(h2); }
   const tb = el("tbody");
   const fila = (n, txt, Pp) => { const tr = el("tr", !n || n.nivel === 0 ? "wk" : null); const td = el("td",null,txt); if (n){ celdaArbol(n, F, td); if (n.nivel === 1) td.style.fontWeight = "700"; if (n.nivel === 2) td.style.fontWeight = "500"; } tr.append(td);
-    for (const x of P){ const r = cuentaDia(Pp, x.dia); MS.forEach(([k], i) => { const v = r[k], td = el("td","n", v ? String(v) : ""); if (MS.length > 1 && !i) td.style.borderLeft = "1px solid var(--line)"; tr.append(td); }); }
+    P.forEach((x, j) => { MS.forEach(([k], i) => { const td = el("td","n", fmtP(suma(Pp, j, k))); if (MS.length > 1 && !i) td.style.borderLeft = "1px solid var(--line)"; tr.append(td); }); });
     if (n){ tr.style.cursor = "pointer"; if (n.persona){ tr.title = "Abrir la ficha"; tr.addEventListener("click", () => ficha(n.persona)); } else { tr.title = "Pulsa para agrupar o desplegar"; tr.addEventListener("click", () => alternar(n, F)); } }
     tb.append(tr); };
   for (const n of nodos) if (visibleNodo(n, F)) fila(n, n.persona ? n.txt + (n.persona.tipo_vinculo === "ETT" ? " · ETT" : "") : n.txt, n.P);
   if (vivos.length) fila(null, "Total", vivos); else { const tr = el("tr"); const x = el("td","empty","No hay personas en ese periodo."); x.colSpan = P.length * MS.length + 1; tr.append(x); tb.append(tr); }
   t.append(tb); tw.append(t); box.append(tw);
-  box.append(el("p","hint",`${MS.map(m => m[1]).join(", ")} al final de cada ${F.escala === "mes" ? "mes" : "semana"} (el periodo en curso, a día de hoy), según las fechas de alta y baja definitiva, las ausencias y los permisos de cada ficha. La persona se cuenta en su sección, departamento y puesto actuales. Las fichas sin fecha de alta cuentan en todo el periodo.`));
+  box.append(el("p","hint",`${MS.map(m => m[1]).join(", ")}: media de cada ${F.escala === "mes" ? "mes" : "semana"} ponderada por días naturales (quien entra el día 16 de un mes de 30 días cuenta 0,5; en el periodo en curso los días que faltan se cuentan con las fechas ya registradas), según las fechas de alta y baja definitiva, las ausencias y los permisos de cada ficha. La persona se cuenta en su sección, departamento y puesto actuales. Las fichas sin fecha de alta cuentan en todo el periodo.`));
 }
 
 // Desplegable de departamentos agrupados por sección
