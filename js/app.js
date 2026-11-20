@@ -50,6 +50,7 @@ const INICIO = [
   { tipo:"carpeta", id:"comercial",   titulo:"Comercial",   texto:"Clientes y equipo comercial.", hijos:["demanda","crm"] },
 ];
 const carpetaDe = codigo => INICIO.find(x => x.tipo === "carpeta" && x.hijos.includes(codigo));
+export { INICIO, MODULOS };   // para Gestión de usuarios: árbol de áreas, módulos y submódulos
 const visible = m => (m.listo && (nivel(m.codigo) || (m.tambien && nivel(m.tambien)))) || (!m.listo && isAdmin());
 
 function route(){ const h = decodeURIComponent(location.hash.replace(/^#/,"")); return h || "inicio"; }
