@@ -829,6 +829,21 @@ function filtrosPuesto(c, F, pks, fl){
 const flCtrl = (lab, n) => { const d = el("div","fld"); d.append(el("span",null,lab), n); return d; };
 const segCtrl = (F, key, opts) => { const s = el("div","seg"); for (const [k,l] of opts){ const b = el("button",null,l); b.type = "button"; b.setAttribute("aria-pressed", String(F[key] === k)); b.addEventListener("click", () => { F[key] = k; render(); }); s.append(b); } return s; };
 
+// Buscador de trabajadores (nombre o código): filtra la tabla; al elegir uno de la lista, alElegir(persona)
+const txtTrab = p => `${p.nombre} · ${p.codigo}`;
+const coincideTrab = (F, p) => { const q = (F.q || "").trim().toLowerCase(); if (!q) return true; const t = txtTrab(p).toLowerCase(); return t.includes(q) || `${p.nombre} ${p.codigo}`.toLowerCase().includes(q) || q.split(/\s+/).every(w => t.includes(w)); };
+function buscadorTrab(c, F, alElegir){
+  const lista = R.data.personas.slice().sort((a, b) => (activa(b) - activa(a)) || a.nombre.localeCompare(b.nombre, "es"));
+  const id = "dlTrab-" + R.tabD, dl = el("datalist"); dl.id = id; for (const p of lista) dl.append(new Option(txtTrab(p), txtTrab(p)));
+  const qi = el("input"); qi.type = "search"; qi.placeholder = "Nombre o código"; qi.setAttribute("list", id); qi.style.minWidth = "240px"; qi.value = F.q || ""; qi.dataset.k = "buscaTrab-" + R.tabD; if (F.q) qi.classList.add("activo");
+  const exacto = () => lista.find(x => txtTrab(x).toLowerCase() === qi.value.trim().toLowerCase());
+  qi.addEventListener("input", () => { F.q = qi.value; const p = exacto(); if (p && alElegir) alElegir(p); render(); });
+  qi.addEventListener("keydown", e => { if (e.key !== "Enter") return; e.preventDefault(); const p = exacto() || lista.filter(x => coincideTrab(F, x))[0]; if (!p) return toast("No hay ningún trabajador con ese nombre o código"); if (alElegir){ alElegir(p); render(); } });
+  const w = el("span"); w.style.cssText = "display:flex;gap:6px"; w.append(qi);
+  if (F.q){ const x = el("button","btn small","Quitar"); x.type = "button"; x.addEventListener("click", () => { F.q = ""; render(); }); w.append(x); }
+  c.append(flCtrl("Buscar trabajador", w), dl);
+}
+
 // ---------- 1 · Introducción de datos: situación de un día y trabajo sobre un trabajador ----------
 function tabPlantilla(box){
   const D = R.data, F = R.fp || (R.fp = { vinculo:"", dia:hoyKey, cerrados:new Set(), nivel:3 });
@@ -838,15 +853,8 @@ function tabPlantilla(box){
   if (F.dia !== hoyKey){ const hb = el("button","btn small","Hoy"); hb.type = "button"; hb.addEventListener("click", () => { F.dia = hoyKey; render(); }); dw.append(hb); }
   fd.append(el("span",null,"Día"), dw); c.append(fd);
   c.append(flCtrl("Vínculo", segCtrl(F, "vinculo", [["","Todos"],["Nómina","Nómina"],["ETT","ETT"]])));
-  // buscador de trabajador
-  const lista = D.personas.slice().sort((a, b) => (activa(b) - activa(a)) || a.nombre.localeCompare(b.nombre, "es"));
-  const dl = el("datalist"); dl.id = "dlTrab"; for (const p of lista) dl.append(new Option(`${p.nombre} · ${p.codigo}`, `${p.nombre} · ${p.codigo}`));
-  const qi = el("input"); qi.type = "search"; qi.placeholder = "Nombre o código"; qi.setAttribute("list","dlTrab"); qi.style.minWidth = "260px"; qi.dataset.k = "buscaTrab";
-  const elegir = () => { const v = qi.value.trim().toLowerCase(); if (!v) return; const p = lista.find(x => `${x.nombre} · ${x.codigo}`.toLowerCase() === v) || lista.filter(x => `${x.nombre} ${x.codigo}`.toLowerCase().includes(v)).sort((a, b) => activa(b) - activa(a))[0];
-    if (!p) return toast("No hay ningún trabajador con ese nombre o código"); R.selP = p.id; render(); };
-  qi.addEventListener("change", elegir); qi.addEventListener("keydown", e => { if (e.key === "Enter"){ e.preventDefault(); elegir(); } });
-  c.append(flCtrl("Buscar trabajador", qi), dl);
-  const L = D.personas.filter(p => (!F.vinculo || p.tipo_vinculo === F.vinculo) && estadoDia(p, F.dia).e !== "fuera");
+  buscadorTrab(c, F, p => { R.selP = p.id; });
+  const L = D.personas.filter(p => (!F.vinculo || p.tipo_vinculo === F.vinculo) && coincideTrab(F, p) && estadoDia(p, F.dia).e !== "fuera");
   const H = hojas(L, [{ dias:[F.dia] }]), nodos = arbolHojas(H); ctrlArbol(c, F, nodos); box.append(c);
   const sel = R.selP && D.personas.find(p => p.id === R.selP); if (sel) box.append(panelTrabajador(sel)); else if (R.selP) R.selP = null;
   // tabla del día
@@ -858,7 +866,7 @@ function tabPlantilla(box){
   const tb = el("tbody");
   const nums = (tr, Hn) => { for (const [k] of MED){ const v = sumaH(Hn, 0, k), x = el("td","n", fmt1(v) || (k === "total" || k === "trabaja" ? "0" : "")); if ((k === "it" || k === "otras") && v) x.style.color = "var(--red)"; if (k === "total" || k === "trabaja") x.style.fontWeight = "700"; tr.append(x); }
     const x = el("td","n", fmtH(sumaH(Hn, 0, "hEf"))); x.style.color = COL_H; tr.append(x); };
-  for (const n of nodos){ if (!visibleNodo(n, F)) continue;
+  for (const n of nodos){ if (!F.q && !visibleNodo(n, F)) continue;
     const tr = el("tr", n.nivel === 0 ? "wk" : null); let txt = n.txt;
     if (n.persona){ const st = estadoDia(n.persona, F.dia), w = n.H[0] ? (sumaH(n.H, 0, "total")) : 1; txt += (st.t ? ` (${st.t})` : "") + (n.persona.tipo_vinculo === "ETT" ? " · ETT" : "") + (w < 0.995 ? ` · ${Math.round(w * 100)} %` : ""); }
     else txt += ` (${nPers(n.H)})`;
@@ -867,7 +875,7 @@ function tabPlantilla(box){
     tr.append(td); nums(tr, n.H); tr.style.cursor = "pointer";
     if (n.persona){ tr.title = "Seleccionar para trabajar sobre este trabajador"; tr.addEventListener("click", () => { R.selP = n.persona.id; render(); window.scrollTo({ top:0, behavior:"smooth" }); }); } else { tr.title = "Pulsa para agrupar o desplegar"; tr.addEventListener("click", () => alternar(n, F)); }
     tb.append(tr); }
-  if (!L.length){ const tr = el("tr"); const x = el("td","empty","No hay personas."); x.colSpan = MED.length + 2; tr.append(x); tb.append(tr); }
+  if (!L.length){ const tr = el("tr"); const x = el("td","empty", F.q ? "Ningún trabajador en plantilla ese día coincide con la búsqueda." : "No hay personas."); x.colSpan = MED.length + 2; tr.append(x); tb.append(tr); }
   else { const tr = el("tr","wk"); tr.append(el("td",null,"Total")); nums(tr, H); tb.append(tr); }
   t.append(tb); tw.append(t); box.append(tw);
   box.append(el("p","hint",`Situación el ${fec(F.dia)}. Total personas = Bajas IT + Otras bajas (excedencia u otra ausencia) + Activas; Activas = Vacaciones (incluye el cierre de empresa) + Permisos + Libre disposición + Trabajando. Horas efectivas: ${num1(D.K.horasDia(F.dia.slice(0,4), "planta"))} h por persona trabajando en día laborable, menos los permisos por horas y con los ajustes de la bolsa de horas. Si una persona reparte su tiempo entre varios puestos, cuenta en cada uno por su parte (el % sale junto al nombre). Pulsa un trabajador, o búscalo arriba, para trabajar sobre él.`));
@@ -977,7 +985,8 @@ function tabEvolucion(box){
   c.append(flCtrl("Escala", segCtrl(F, "escala", [["mes","Meses"],["semana","Semanas"]])), flCtrl("Desde", iD), flCtrl("Hasta", iH), flCtrl("Dato", sm), flCtrl("Horas efectivas", segCtrl(F, "horas", [["si","Ver"],["no","Ocultar"]])), flCtrl("Vínculo", segCtrl(F, "vinculo", [["","Todos"],["Nómina","Nómina"],["ETT","ETT"]])));
   const P = periodosMS(F.escala, F.desde, F.hasta).filter(x => !x.futuro);
   if (P.length > 160){ box.append(c, el("div","card empty","Demasiados periodos: acorta el rango de fechas.")); return; }
-  const base = D.personas.filter(p => !F.vinculo || p.tipo_vinculo === F.vinculo);
+  buscadorTrab(c, F);
+  const base = D.personas.filter(p => (!F.vinculo || p.tipo_vinculo === F.vinculo) && coincideTrab(F, p));
   const H0 = hojas(base, P);
   const okPk = filtrosPuesto(c, F, H0.map(h => h.pk), flCtrl);
   const H = H0.filter(h => okPk(h.pk) && h.v.some(o => o.total > 0));
@@ -999,7 +1008,7 @@ function tabEvolucion(box){
     celdas(tr, Hn);
     if (n){ tr.style.cursor = "pointer"; if (n.persona){ tr.title = "Trabajar sobre este trabajador (Introducción de datos)"; tr.addEventListener("click", () => { R.selP = n.persona.id; R.tabD = "plantilla"; render(); }); } else { tr.title = "Pulsa para agrupar o desplegar"; tr.addEventListener("click", () => alternar(n, F)); } }
     tb.append(tr); };
-  for (const n of nodos) if (visibleNodo(n, F)) fila(n, n.persona ? n.txt + (n.persona.tipo_vinculo === "ETT" ? " · ETT" : "") : n.txt, n.H);
+  for (const n of nodos) if (F.q || visibleNodo(n, F)) fila(n, n.persona ? n.txt + (n.persona.tipo_vinculo === "ETT" ? " · ETT" : "") : n.txt, n.H);
   if (H.length){ fila(null, "Total", H);
     if (conH){ const fx = (txt, f, col) => { const tr = el("tr","wk"); tr.append(el("td",null,txt)); P.forEach((x, i) => { const td = el("td","n", f(i)); td.colSpan = cols; if (cols > 1){ td.style.textAlign = "center"; td.style.borderLeft = "1px solid var(--line)"; } if (col) td.style.color = col; tr.append(td); }); tb.append(tr); };
       fx("Horas efectivas", i => fmtH(sumaH(H, i, "hEf")), COL_H); fx("Horas disponibles (activos)", i => fmtH(sumaH(H, i, "hDisp"))); fx("% de actividad", i => pctA(sumaH(H, i, "hEf"), sumaH(H, i, "hDisp"))); } }
@@ -1032,15 +1041,14 @@ function tabTrabajador(box){
   else { const a = el("input"); a.type = "month"; a.value = F.desde; a.addEventListener("change", () => { if (a.value){ F.desde = a.value; render(); } });
     const b = el("input"); b.type = "month"; b.value = F.hasta; b.addEventListener("change", () => { if (b.value){ F.hasta = b.value; render(); } }); c.append(flCtrl("Desde", a), flCtrl("Hasta", b)); }
   c.append(flCtrl("Horas", segCtrl(F, "horas", [["si","Ver"],["no","Ocultar"]])), flCtrl("Vínculo", segCtrl(F, "vinculo", [["","Todos"],["Nómina","Nómina"],["ETT","ETT"]])));
-  const q = el("input"); q.type = "search"; q.placeholder = "Nombre o código"; q.value = F.q; q.dataset.k = "ft-q"; q.addEventListener("input", () => { F.q = q.value; render(); }); c.append(flCtrl("Buscar", q));
+  buscadorTrab(c, F);
   // periodos
   let P;
   if (F.escala === "dia"){ const a = F.dDesde <= F.dHasta ? F.dDesde : F.dHasta, b = F.dDesde <= F.dHasta ? F.dHasta : F.dDesde; const DS = ["D","L","M","X","J","V","S"];
     P = diasDe(a, b).map(k => ({ lab:`${DS[new Date(k + "T00:00:00Z").getUTCDay()]} ${k.slice(8,10)}/${k.slice(5,7)}`, ini:k, fin:k, dias:[k] }));
     if (P.length > 93){ box.append(c, el("div","card empty","Como mucho 93 días en la escala de días: acorta el rango o usa semanas o meses.")); return; } }
   else { P = periodosMS(F.escala, F.desde, F.hasta).filter(x => !x.futuro); if (P.length > 160){ box.append(c, el("div","card empty","Demasiados periodos: acorta el rango de fechas.")); return; } }
-  const qq = F.q.trim().toLowerCase();
-  const base = D.personas.filter(p => (!F.vinculo || p.tipo_vinculo === F.vinculo) && (!qq || `${p.nombre} ${p.codigo}`.toLowerCase().includes(qq)));
+  const base = D.personas.filter(p => (!F.vinculo || p.tipo_vinculo === F.vinculo) && coincideTrab(F, p));
   const okPk = filtrosPuesto(c, F, base.map(pkPrincipal), flCtrl); box.append(c);
   // cálculo por persona y día
   const filas = [];
