@@ -809,3 +809,10 @@ dialog#dlgNav{max-width:min(900px,96vw);width:900px}
 .provtit{margin:18px 0 0}
 .busart{margin-top:6px;padding-bottom:6px}
 .tesbl thead tr:not(.grp) th.f1{box-shadow:inset -1px 0 0 var(--line)}
+
+/* Calendario laboral: cierre de empresa, ventana de turnos y vacaciones de la cuenta empresa */
+.vac-d.cierre{background:#1F3864;color:#fff}
+.vac-d.turno{background:#FBE5D6;color:var(--ink)}
+.vac-d.vac.emp{background:#D98C2E;color:#fff}
+.vac-ley{flex-wrap:wrap}
+.ctrl select.activo{border-color:var(--ink);box-shadow:0 0 0 1px var(--ink)}
