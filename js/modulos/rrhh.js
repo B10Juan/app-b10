@@ -138,12 +138,48 @@ export function renderDatos(app){
   if (!["plantilla","evolucion","trabajador","personas","estructura"].includes(R.tabD)) R.tabD = "plantilla";
   for (const [k,t] of [["plantilla","Introducción de datos"],["evolucion","Evolución de la plantilla|por departamento"],["trabajador","Evolución de la plantilla|por trabajador"],["personas", "Maestro de Personas" + (inc ? ` (${inc} incompletas)` : "")],["estructura","Maestro de Puestos de trabajo"]]){
     const a = el("a"); t.split("|").forEach((x, i) => { if (i) a.append(el("br")); a.append(x); }); a.style.lineHeight = "1.25"; a.style.whiteSpace = "nowrap"; a.href = "#datos"; if (R.tabD === k) a.setAttribute("aria-current","page"); a.addEventListener("click", e => { e.preventDefault(); R.tabD = k; R.hlPuesto = null; render(); }); nav.append(a); }
-  const acc = el("span"); acc.style.cssText = "margin-left:auto;display:flex;gap:8px";
+  const acc = el("span"); acc.style.cssText = "margin-left:auto;display:flex;gap:8px;white-space:nowrap;align-self:center";
   const exv = el("button","btn small","Exportar vista a Excel"); exv.addEventListener("click", () => exportarVista(box, { estructura:"Maestro puestos", plantilla:"Introduccion datos " + ((R.fp && R.fp.dia) || hoyKey), evolucion:"Evolucion plantilla departamento", trabajador:"Evolucion plantilla trabajador" }[R.tabD] || "Maestro personas")); acc.append(exv);
+  if (puede()){ const bc = el("button","btn small","Copias de seguridad"); bc.type = "button"; bc.title = "Restaurar los datos de Personas tal como estaban en una copia anterior"; bc.addEventListener("click", dialogoCopias); acc.append(bc);
+    if (!R.copiaHoy){ R.copiaHoy = true; sch().rpc("crear_copia", { p_tipo:"Automática", p_nota:"Copia del día (datos al cierre del día anterior)", p_solo_si_no_hay:true }).then(r => { if (r && r.error) console.warn("Copia diaria", r.error); }); } }
   if (nivel("rrhh")){ const cl = el("a","btn small","Costes de personal ›"); cl.href = "#personas-costes"; acc.append(cl); }
   nav.append(acc);
   box.append(nav);
   if (R.tabD === "estructura") tabEstructura(box); else if (R.tabD === "plantilla") tabPlantilla(box); else if (R.tabD === "evolucion") tabEvolucion(box); else if (R.tabD === "trabajador") tabTrabajador(box); else tabPersonas(box);
+}
+
+// ---------- Copias de seguridad de los datos de Personas (migración 32) ----------
+const TAB_COPIA = { personas:"personas", puestos:"puestos", ausencias:"ausencias", permisos:"permisos", persona_puestos:"asignaciones de puesto", horas_compensar:"apuntes de horas", vac_saldos:"saldos de vacaciones" };
+async function dialogoCopias(){
+  let dlg = document.getElementById("dlgCopias"); if (dlg) dlg.remove();
+  dlg = el("dialog"); dlg.id = "dlgCopias"; dlg.style.cssText = "max-width:820px;width:96vw;max-height:90vh;overflow:auto"; document.body.append(dlg);
+  dlg.append(el("h2",null,"Copias de seguridad de Personas"), el("p","sub","Cada día se guarda una copia automática con los datos al cierre del día anterior (se conservan 30 días). Incluye personas, puestos y departamentos, contratos ETT, ausencias, permisos, asignaciones de puesto, horas a compensar, vacaciones y calendarios. No incluye las nóminas cargadas."));
+  const cont = el("div"); cont.append(el("p","hint","Cargando copias…")); dlg.append(cont);
+  const acts = el("div","actions"); const nb = el("button","btn","Hacer una copia ahora"); nb.type = "button"; const cl = el("button","btn primary","Cerrar"); cl.type = "button"; cl.addEventListener("click", () => dlg.close()); acts.append(nb, cl); dlg.append(acts);
+  dlg.showModal();
+  const lista = async () => {
+    const r = await sch().from("copias").select("id,creado,tipo,nota,resumen").order("creado", { ascending:false }).limit(200);
+    cont.textContent = "";
+    if (r.error){ console.error(r.error); cont.append(el("p","hint","No se han podido leer las copias (¿está ejecutada la migración 32?).")); return; }
+    if (!r.data.length){ cont.append(el("p","hint","Todavía no hay copias.")); return; }
+    const tw = el("div","tblwrap"); const t = el("table","tbl"); const hr = el("tr"); for (const h of ["Fecha y hora","Tipo","Contenido",""]) hr.append(el("th",null,h)); t.append(el("thead")); t.tHead.append(hr); const tb = el("tbody");
+    for (const c of r.data){ const tr = el("tr"); const d = new Date(c.creado), p2 = n => String(n).padStart(2,"0");
+      const cuando = `${p2(d.getDate())}/${p2(d.getMonth() + 1)}/${d.getFullYear()} ${p2(d.getHours())}:${p2(d.getMinutes())}`;
+      const res = c.resumen || {}; const txt = Object.entries(TAB_COPIA).filter(([k]) => res[k] != null).map(([k, l]) => `${res[k]} ${l}`).join(" · ");
+      const tdt = el("td",null,c.tipo); if (c.nota){ tdt.append(el("br"), el("small",null,c.nota)); }
+      const ac = el("td"); const b = el("button","btn small primary","Restaurar"); b.type = "button";
+      b.addEventListener("click", async () => {
+        if (!confirm(`¿Restaurar los datos de Personas tal como estaban el ${cuando}?\n\nSe deshacen los cambios hechos después: se recupera lo borrado y se borra lo creado después de esa copia (ausencias, permisos, vacaciones, asignaciones…). Las nóminas no se tocan.\n\nAntes se guarda una copia «Antes de restaurar» por si quieres volver atrás.`)) return;
+        b.disabled = true; b.textContent = "Restaurando…";
+        const q = await sch().rpc("restaurar_copia", { p_id:c.id });
+        if (q.error){ console.error(q.error); b.disabled = false; b.textContent = "Restaurar"; return toast("No se ha podido restaurar: " + q.error.message); }
+        const tabs = (q.data && q.data.tablas) || {}, noB = Object.values(tabs).reduce((s, x) => s + (x.no_borradas || 0), 0);
+        dlg.close(); toast(`Datos restaurados a la copia del ${cuando}${noB ? ` (${noB} registros con nóminas no se han podido borrar)` : ""}`); recargar(); });
+      ac.append(b); tr.append(el("td",null,cuando), tdt, el("td",null,txt), ac); tb.append(tr); }
+    t.append(tb); tw.append(t); cont.append(tw);
+  };
+  nb.addEventListener("click", async () => { const nota = prompt("Nota para la copia (opcional):", "") ; if (nota === null) return; const q = await sch().rpc("crear_copia", { p_tipo:"Manual", p_nota:nota.trim() || null, p_solo_si_no_hay:false }); if (q.error){ console.error(q.error); return toast("No se ha podido hacer la copia"); } toast("Copia guardada"); lista(); });
+  lista();
 }
 
 // ---------- Resumen ----------
@@ -396,8 +432,11 @@ async function ficha(p){
   const blkEtt = fila(campo("empresa_ett","Empresa ETT","select",[...new Set(["Noawork","Interim", ...D.personas.map(x => x.empresa_ett).filter(Boolean)])],true), campo("codigo","Código","text",null,false));
   const blkNom = fila(campo("codigo","Código de nómina","text",null,true), campo("empleador","Empleador","text",null,false));
   f.append(blkEtt, blkNom);
+  let fCambio = null;
   { const d = el("div","f"); d.dataset.f = "puesto_id"; const sp = selectPuesto(v.puesto_id); sp.disabled = !ed; I.puesto_id = sp; d.append(el("label",null,"Puesto"), sp, el("span","hint", D.puestos.length ? "Al elegir el puesto se rellenan el departamento y la sección." : "Crea los puestos en el Maestro de puestos de trabajo."));
-    f.append(fila(d, campo("grupo_profesional","Grupo profesional","text"))); }
+    f.append(fila(d, campo("grupo_profesional","Grupo profesional","text")));
+    if (!nueva && p.puesto_id){ const dc = el("div","f"); fCambio = el("input"); fCambio.type = "date"; fCambio.value = hoyKey; dc.append(el("label",null,"El cambio de puesto vale a partir del día"), fCambio, el("span","hint","Los días anteriores siguen contando en el puesto de antes."));
+      const fc = fila(dc, el("div")); fc.hidden = true; f.append(fc); sp.addEventListener("change", () => { fc.hidden = String(sp.value || "") === String(p.puesto_id || ""); }); } }
   f.append(fila(campo("clasificacion","Sección","select",CLASIF,true), campo("departamento","Departamento","select",D.deps.filter(d => d.activo !== false).map(d => d.nombre),true)));
   { const d = el("div","f"); d.dataset.f = "calendario"; const sc = el("select"); sc.append(new Option("Según su sección (M.O.D: Planta; resto: Oficinas y almacén)",""), new Option("Planta","planta"), new Option("Oficinas y almacén","oficinas")); sc.value = v.calendario || ""; sc.disabled = !ed; I.calendario = sc;
     d.append(el("label",null,"Calendario laboral"), sc, el("span","hint","Marca el cierre de empresa, los turnos y los días de vacaciones de cada cuenta.")); f.append(fila(campo("categoria","Categoría","text"), d)); }
@@ -475,7 +514,9 @@ async function ficha(p){
       if (rc.error){ console.error(rc.error); err.textContent = rc.error.code === "23505" ? (rc.error.message || "Ya existe una persona con ese código.") : "No se ha podido cambiar el código: " + rc.error.message; return; } }
     if (nueva){ row.codigo = val.codigo; r = await sch().from("personas").insert(row).select("id").single();
       if (!r.error && ett && val.fecha_alta) await sch().from("ett_periodos").insert({ persona_id:r.data.id, empresa_ett:val.empresa_ett, fecha_inicio:val.fecha_alta, fecha_fin:finPrev.value || null }); }
-    else r = await sch().from("personas").update(row).eq("id", p.id);
+    else {
+      if (fCambio && (row.puesto_id || null) !== (p.puesto_id || null)){ if (!fCambio.value){ err.textContent = "Pon desde qué día vale el cambio de puesto."; return; } if (!(await historicoPuesto(p, fCambio.value))) return; }
+      r = await sch().from("personas").update(row).eq("id", p.id); }
     if (r.error){ console.error(r.error); err.textContent = r.error.code === "23505" ? "Ya existe una persona con ese código." : "No se ha podido guardar: " + r.error.message; return; }
     const etq = { clasificacion:"sección", departamento:"departamento", tipo_contrato:"contrato", fecha_alta:"fecha de alta" };
     toast((nueva ? "Persona dada de alta" : "Ficha guardada") + (pend.length ? ". Pendiente: " + pend.map(k => etq[k]).join(", ") : "")); dlg.close(); recargar();
@@ -910,6 +951,16 @@ function panelTrabajador(p){
   else c.append(tarjetaAusencias(p, ed, () => {}, tras), tarjetaPermisos(p, ed, () => {}, tras));
   return c;
 }
+// Antes de cambiar el puesto principal: los días anteriores a «desde» se quedan en el puesto de antes
+// (se guardan como asignación desde el alta hasta el día previo), así el cambio no reescribe el pasado.
+async function historicoPuesto(p, desde){
+  if (!p.puesto_id) return true;
+  const ini = p.fecha_alta && p.fecha_alta < desde ? p.fecha_alta : "2000-01-01"; const d = new Date(desde + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() - 1); const fin = d.toISOString().slice(0,10);
+  if (fin < ini) return true;
+  const q = await sch().from("persona_puestos").insert({ persona_id:p.id, puesto_id:p.puesto_id, pct:100, desde:ini, hasta:fin, observaciones:"Puesto principal anterior" });
+  if (q.error){ console.error(q.error); toast("No se ha podido guardar el histórico del puesto"); return false; }
+  return true;
+}
 // Guarda el puesto (o el reparto entre dos puestos) de una persona en un día o periodo: sustituye lo que hubiera
 // con exactamente esas mismas fechas. Filas: [{ puesto_id, pct }]
 async function guardarPuestoDia(p, desde, hasta, filas, obs){
@@ -977,9 +1028,7 @@ function tarjetaPuestos(p, ed, tras){
   const g = el("div","f2"); g.append(fld("Nuevo puesto principal", sp), fld("A partir del día", df)); c2.append(g);
   if (ed){ const b = el("button","btn small primary","Cambiar puesto principal"); b.type = "button";
     b.addEventListener("click", async () => { const nuevo = sp.value ? +sp.value : null; if (nuevo === (p.puesto_id || null)) return toast("Es el mismo puesto"); if (!df.value) return df.focus();
-      // los días anteriores siguen en el puesto de antes: se guardan como asignación hasta el día previo
-      if (p.puesto_id){ const ini = p.fecha_alta && p.fecha_alta < df.value ? p.fecha_alta : "2000-01-01"; const d = new Date(df.value + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() - 1); const fin = d.toISOString().slice(0,10);
-        if (fin >= ini){ const q = await sch().from("persona_puestos").insert({ persona_id:p.id, puesto_id:p.puesto_id, pct:100, desde:ini, hasta:fin, observaciones:"Puesto principal anterior" }); if (q.error){ console.error(q.error); return toast("No se ha podido guardar el histórico"); } } }
+      if (!(await historicoPuesto(p, df.value))) return;
       const r = await sch().from("personas").update({ puesto_id:nuevo }).eq("id", p.id); if (r.error){ console.error(r.error); return toast("No se ha podido guardar"); }
       toast(`Puesto principal cambiado desde el ${fec(df.value)}`); tras(); });
     c2.append(b, el("p","hint","Los días anteriores a esa fecha siguen contando en el puesto de antes (se guarda como asignación). Los días con un puesto asignado expresamente no cambian.")); }
