@@ -96,12 +96,12 @@ export function renderRrhh(app){
   if (!R.data){ if (!R.loading) cargar(); box.append(el("div","card empty","Cargando datos…")); return; }
 
   const nav = el("nav","tabs"); nav.style.marginBottom = "12px";
-  if (!["resumen","seccion","empleado","ett"].includes(R.tab)) R.tab = "resumen";
-  for (const [k,t] of [["resumen","Resumen"],["seccion","Por sección"],["empleado","Por empleado"],["ett","ETT"]]){
+  if (!["resumen","seccion","puesto","empleado","ett"].includes(R.tab)) R.tab = "resumen";
+  for (const [k,t] of [["resumen","Resumen"],["seccion","Por sección"],["puesto","Por puesto de trabajo"],["empleado","Por empleado"],["ett","ETT"]]){
     const a = el("a",null,t); a.href = "#personas-costes"; if (R.tab === k) a.setAttribute("aria-current","page"); a.addEventListener("click", e => { e.preventDefault(); R.tab = k; render(); }); nav.append(a); }
   const acc = el("span"); acc.style.marginLeft = "auto"; acc.style.display = "flex"; acc.style.gap = "8px";
   if (nivel("datos") || nivel("rrhh")){ const fd = el("a","btn small","Fichas y estructura ›"); fd.href = "#datos"; fd.title = "Formulario de introducción de datos"; acc.append(fd); }
-  const TAB_LAB = { resumen:"Resumen", seccion:"Por seccion", empleado:"Por empleado", ett:"ETT" };
+  const TAB_LAB = { resumen:"Resumen", seccion:"Por seccion", puesto:"Por puesto", empleado:"Por empleado", ett:"ETT" };
   const exv = el("button","btn small","Exportar vista a Excel"); exv.title = "Descarga las tablas que estás viendo en esta pestaña"; exv.addEventListener("click", () => exportarVista(box, "Costes " + TAB_LAB[R.tab]));
   const ex = el("button","btn small","Exportar todo"); ex.title = "Resumen, personas con retribución y coste por empleado"; ex.addEventListener("click", exportar); acc.append(exv, ex);
   if (puedeCostes()){
@@ -121,6 +121,7 @@ export function renderRrhh(app){
   if (!R.data.nomina.length){ box.append(el("div","card empty","Todavía no hay nóminas cargadas. Usa «Cargar nómina» con el fichero de imputación de costes del mes.")); return; }
   if (R.tab === "resumen") tabResumen(box);
   else if (R.tab === "seccion") tabSeccion(box);
+  else if (R.tab === "puesto") tabCostePuesto(box);
   else if (R.tab === "empleado") tabEmpleado(box);
   else tabEtt(box);
 }
@@ -577,6 +578,58 @@ function tabEtt(box){
     for (const g of deps){ const tr = el("tr"); tr.append(el("td",null,g)); for (const m of M) tr.append(el("td","n",String(new Set(D.act.filter(a => a.departamento === g && a.periodo === m).map(a => a.codigo)).size || ""))); b2.append(tr); }
     t2.append(b2); tw2.append(t2); box.append(tw2); }
   box.append(el("p","hint","Un coste por día-persona muy alto (en rojo) indica que faltan personas o contratos de ETT en las fichas para ese mes. Para dar de alta a una persona de ETT: Formulario introducción de datos › Personas › Nueva persona › Vínculo ETT."));
+}
+
+// ---------- Coste por puesto de trabajo: el coste de cada persona se reparte cada mes entre los puestos en los que ha estado ----------
+// Reparto por las horas de jornada de sus días laborables en plantilla (también los de vacaciones, permisos o baja: ese coste
+// cuenta en el puesto que tenía ese día) con el % de cada puesto ese día. Coste no productivo: la parte de esas horas que no son
+// horas efectivas (vacaciones, cierre, permisos, bajas). Coste por hora efectiva = coste / horas efectivas.
+function costesPuesto(M){
+  const D = R.data, filas = new Map();
+  const leaf = (pk, p, cod) => { const key = pk.k + "|" + (p ? p.id : "c" + cod); let h = filas.get(key); if (!h){ h = { pk, p: p || { id:"c" + cod, nombre:`${cod} (sin ficha)`, tipo_vinculo:"" }, v:M.map(() => ({ coste:0, hEf:0, base:0, np:0, ett:0 })) }; filas.set(key, h); } return h; };
+  const sinFicha = { k:"sinficha", id:null, clas:null, dep:"Sin ficha", pue:"Sin puesto", ab:"—" };
+  M.forEach((m, i) => {
+    const coste = new Map(); for (const n of D.nomina) if (n.periodo === m){ const c = costeDev(n); if (c) coste.set(n.codigo, (coste.get(n.codigo) || 0) + c); }
+    const ettC = repartoEtt(m); for (const [cod, v] of ettC) coste.set(cod, (coste.get(cod) || 0) + v);
+    const fac = sum(Object.values(ettMes(m)), x => x), asig = sum([...ettC.values()], x => x);
+    if (Math.abs(fac - asig) > 0.5){ const h = leaf({ k:"ettsin", id:null, clas:null, dep:"ETT", pue:"Facturas sin personas en contrato", ab:"—" }, { id:"ettsin", nombre:"Facturas ETT sin personas en contrato ese mes", tipo_vinculo:"ETT" }); h.v[i].coste += fac - asig; h.v[i].np += fac - asig; h.v[i].ett += fac - asig; }
+    const dias = diasDe(m, finMes(m));
+    for (const [cod, c] of coste){
+      const p = D.porCodigo.get(cod); if (!p){ const h = leaf(sinFicha, null, cod); h.v[i].coste += c; h.v[i].np += c; continue; }
+      const acc = new Map(); let tot = 0;
+      for (const d of dias){ const r = diaPersona(p, d); if (r.st.e === "fuera" || !r.lab) continue;
+        for (const { pk, w } of r.rep){ let o = acc.get(pk.k); if (!o){ o = { pk, base:0, hEf:0 }; acc.set(pk.k, o); } o.base += r.hd * w; o.hEf += r.hEf * w; tot += r.hd * w; } }
+      if (!tot){ const h = leaf(pkPrincipal(p), p); h.v[i].coste += c; h.v[i].np += c; if (p.tipo_vinculo === "ETT") h.v[i].ett += c; continue; }
+      for (const o of acc.values()){ const h = leaf(o.pk, p), cc = c * o.base / tot, x = h.v[i]; x.coste += cc; x.hEf += o.hEf; x.base += o.base; x.np += cc * Math.max(0, 1 - o.hEf / o.base); if (p.tipo_vinculo === "ETT") x.ett += cc; }
+    }
+  });
+  return [...filas.values()];
+}
+function tabCostePuesto(box){
+  ctrlIndem(box);
+  const M = meses(), F = R.fcp || (R.fcp = { dato:"coste", cerrados:null, nivel:2, vinculo:"" });
+  const c = el("div","ctrl");
+  c.append(flCtrl("Dato", segCtrl(F, "dato", [["coste","Coste"],["hora","Coste por hora efectiva"],["horas","Horas efectivas"],["np","Coste no productivo"]])), flCtrl("Vínculo", segCtrl(F, "vinculo", [["","Todos"],["Nómina","Nómina"],["ETT","ETT"]])));
+  const H = costesPuesto(M).filter(h => !F.vinculo || h.p.tipo_vinculo === F.vinculo), nodos = arbolHojas(H);
+  if (!F.cerrados) F.cerrados = new Set(nodos.filter(n => n.nivel === 2).map(n => n.key));
+  ctrlArbol(c, F, nodos); box.append(c);
+  const tw = el("div","tblwrap"); const t = el("table","tbl fija"); const hr = el("tr"); hr.append(el("th",null,"Sección › departamento › puesto › persona")); for (const m of M) hr.append(el("th","n",mesLab(m))); for (const h of ["Total", F.dato === "hora" ? "" : "% s/total"]) hr.append(el("th","n",h)); t.append(el("thead")); t.tHead.append(hr);
+  const tb = el("tbody");
+  const agg = (Hn, i) => Hn.reduce((a, h) => { const x = h.v[i]; a.coste += x.coste; a.hEf += x.hEf; a.np += x.np; return a; }, { coste:0, hEf:0, np:0 });
+  const aggT = Hn => M.reduce((a, m, i) => { const x = agg(Hn, i); a.coste += x.coste; a.hEf += x.hEf; a.np += x.np; return a; }, { coste:0, hEf:0, np:0 });
+  const TT = aggT(H);
+  const val = a => F.dato === "coste" ? eur(a.coste) : F.dato === "horas" ? (a.hEf ? fmtH(a.hEf) : "") : F.dato === "np" ? eur(a.np) : (a.hEf ? eur2(a.coste / a.hEf) : "");
+  const fila = (n, txt, Hn) => { const tr = el("tr", !n || n.nivel === 0 ? "wk" : null); const td = el("td",null,txt); if (n){ celdaArbol(n, F, td); if (n.nivel === 1) td.style.fontWeight = "700"; if (n.nivel === 2) td.style.fontWeight = "500"; } tr.append(td);
+    M.forEach((m, i) => tr.append(el("td","n", val(agg(Hn, i)))));
+    const tt = aggT(Hn); const tdT = el("td","n", val(tt)); tdT.style.fontWeight = "700"; tr.append(tdT);
+    tr.append(el("td","n", F.dato === "hora" ? "" : F.dato === "horas" ? pctf(TT.hEf ? tt.hEf / TT.hEf : null) : F.dato === "np" ? pctf(tt.coste ? tt.np / tt.coste : null) : pctf(TT.coste ? tt.coste / TT.coste : null)));
+    if (n){ tr.style.cursor = "pointer"; if (n.persona){ tr.title = "Abrir la ficha"; tr.addEventListener("click", () => { const p = R.data.personas.find(x => x.id === n.persona.id); if (p) ficha(p); }); } else { tr.title = "Pulsa para agrupar o desplegar"; tr.addEventListener("click", () => alternar(n, F)); } }
+    tb.append(tr); };
+  for (const n of nodos) if (visibleNodo(n, F)) fila(n, n.persona ? n.txt + (n.persona.tipo_vinculo === "ETT" ? " · ETT" : "") : n.txt, n.H);
+  if (H.length) fila(null, "Total", H); else { const tr = el("tr"); const x = el("td","empty","No hay costes este año."); x.colSpan = M.length + 3; tr.append(x); tb.append(tr); }
+  t.append(tb); tw.append(t); box.append(tw);
+  if (F.dato === "np") box.append(el("p","hint","En la última columna: % del coste de cada fila que es no productivo."));
+  box.append(el("p","hint",`El coste de cada persona en el mes (nómina con la paga de verano prorrateada${R.indem ? " e indemnizaciones" : ""}; ETT: factura repartida por días de contrato, estimado) se reparte entre los puestos en los que ha estado cada día laborable, con el % de cada puesto ese día (Introducción de datos o cuadrante de la evolución por trabajador). Los días de vacaciones, cierre, permisos o baja cuentan en el puesto que tenía ese día y forman el coste no productivo. Coste por hora efectiva = coste / horas efectivas. Las personas sin ficha salen en «Sin ficha».`));
 }
 
 // ---------- Situación de la persona (activa, IT, excedencia, vacaciones, baja definitiva) ----------
