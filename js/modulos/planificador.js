@@ -330,6 +330,38 @@ function openAsg(sid,po){
   $("#asgRef").value=""; $("#asgErr").textContent=""; $("#dlgAsg").showModal(); setTimeout(()=>$("#asgRef").focus(),30);
 }
 $("#asgCancel").addEventListener("click",()=>$("#dlgAsg").close());
+$("#asgExport").addEventListener("click",()=>{ if(asgCtx) exportPropuesta(asgCtx.sid, asgCtx.po, $("#asgRef").value.trim(), $("#asgSize").value); });
+// Exporta el pedido propuesto (antes de crearlo) para enviarlo o revisarlo; importes con fórmulas
+function exportPropuesta(sid, po, ref, tamano){
+  const s=sup(sid)||{}, c=cfg(sid), d=od(po,sid), mon=c.moneda||"EUR", f=formaSup(sid);
+  const lin=Object.entries(po.lines||{}).map(([k,q])=>({p:prod(k)||{name:k},q:+q})).filter(x=>x.q);
+  const A=[["Pedido de importación (propuesta)"],[],
+    ["Proveedor", s.name||"", s.razon&&s.razon!==s.name?s.razon:"", s.codigo_ax?`Código AX ${s.codigo_ax}`:""],
+    ["Nº de pedido", ref||"(sin número todavía)"],
+    ["Fecha", xDate(utcToday)],
+    ["Tamaño", (SIZES.find(x=>x[0]===tamano)||[,tamano||""])[1]],
+    ["ETA prevista", xDate(d.eta), `Semana ${wLabel(d.etaW).replace("S","")}`],
+    ["ETD estimada (carga)", xDate(d.etd)],
+    ["Entrada en almacén", `${wLabel(d.entryW)} · ${dLong(d.entryW)}`],
+    ["Forma de pago", f.nombre],
+    ["Moneda", mon],
+    [],
+    ["Código AX","Clave stock","Ref. proveedor","Descripción","Modelo","Unidades","Uds/pallet","Pallets","Precio","Importe"]];
+  const first=A.length+1;   // primera fila de líneas (Excel empieza en 1)
+  lin.forEach((x,i)=>{ const r=first+i; A.push([x.p.codigo_ax||"", x.p.clave||"", x.p.refProv||"", x.p.name||"", x.p.model||"", x.q, x.p.pallet||"", {f:`IF(G${r}>0,F${r}/G${r},"")`}, x.p.price||0, {f:`F${r}*I${r}`}]); });
+  const last=first+lin.length-1;
+  A.push(["Total","","","","",{f:`SUM(F${first}:F${last})`},"",{f:`SUM(H${first}:H${last})`},"",{f:`SUM(J${first}:J${last})`}]);
+  if(po.comentarios) A.push([],["Notas",po.comentarios]);
+  const ws=XLSX.utils.aoa_to_sheet(A.map(r=>r.map(v=>v&&typeof v==="object"&&v.f?null:v)));
+  A.forEach((r,ri)=>r.forEach((v,ci)=>{ if(v&&typeof v==="object"&&v.f){ ws[XLSX.utils.encode_cell({r:ri,c:ci})]={t:"n",f:v.f}; } }));
+  const nf=mon==="USD"?'#,##0.00 "$"':'#,##0.00 "€"';
+  for(let r=first;r<=last+1;r++){ for(const col of ["I","J"]){ const cell=ws[`${col}${r}`]; if(cell) cell.z=nf; } const h=ws[`H${r}`]; if(h) h.z="0.0"; }
+  for(const c of ["B5","B7","B8"]) if(ws[c]&&typeof ws[c].v==="number"){ ws[c].t="n"; ws[c].z="dd/mm/yyyy"; }
+  ws["!cols"]=[{wch:18},{wch:18},{wch:14},{wch:36},{wch:14},{wch:10},{wch:10},{wch:9},{wch:12},{wch:14}];
+  ws["!ref"]=XLSX.utils.encode_range({s:{r:0,c:0},e:{r:A.length-1,c:9}});
+  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,"Pedido");
+  XLSX.writeFile(wb,`Pedido_${safeU(s.name||"proveedor")}_${ref?safeU(ref):wLabel(d.entryW)}_${key(utcToday)}.xlsx`);
+}
 $("#fAsg").addEventListener("submit",ev=>{
   ev.preventDefault(); const {sid,po}=asgCtx; const ref=$("#asgRef").value.trim();
   if(!ref){$("#asgErr").textContent="Indica el número de pedido."; return;}
@@ -680,7 +712,7 @@ async function cargar(){
   try{
     const [pv, ap, pr, pe, st, fpg, nav, em] = await Promise.all([
       sb.schema("maestros").from("proveedores").select("id,codigo_ax,nombre,nombre_corto,alias,moneda,grupo_compra,es_importacion,contacto,email,plazo_semanas,transito_semanas,despacho_semanas,forma_pago_id,cobertura_semanas"),
-      sb.schema("maestros").from("articulo_proveedor").select("id,articulo_id,proveedor_id,precio,moneda,uds_pallet,orden,clave_stock,a_extinguir,venta_media_semanal,stock_seguridad,stock_manual,descripcion,modelo,articulos(id,codigo_ax,descripcion,modelo,estado)").eq("planificar", true).range(0, 4999),
+      sb.schema("maestros").from("articulo_proveedor").select("id,articulo_id,proveedor_id,precio,moneda,uds_pallet,orden,ref_proveedor,clave_stock,a_extinguir,venta_media_semanal,stock_seguridad,stock_manual,descripcion,modelo,articulos(id,codigo_ax,descripcion,modelo,estado)").eq("planificar", true).range(0, 4999),
       sb.schema("compras").from("prevision_venta").select("articulo_proveedor_id,semana,unidades").gte("semana", key(today)).range(0, 9999),
       sb.schema("compras").from("pedidos").select("*").order("eta"),
       sb.schema("ax").from("v_stock_actual").select("clave,disponible_real,disponible,fecha_stock,fichero").range(0, 9999),
@@ -704,7 +736,7 @@ async function cargar(){
       _id:"ap-"+a.id, apId:a.id, artId:a.articulos.id, code:String(a.id), codigo_ax:a.articulos.codigo_ax, estado:a.articulos.estado, clave:a.clave_stock || "",
       name:a.descripcion || a.articulos.descripcion, model:a.modelo || a.articulos.modelo || "", avg:num0(a.venta_media_semanal), ss:num0(a.stock_seguridad),
       stockAX: !!sx, stock: sx ? +sx.disponible_real : num0(a.stock_manual), stockReal: sx ? +sx.disponible : num0(a.stock_manual), stockManual:num0(a.stock_manual), stockFecha: sx ? sx.fecha_stock : null, stockFichero: sx ? sx.fichero : null,
-      extinguir: !!a.a_extinguir, pallet:a.uds_pallet, price:num0(a.precio), supplier:"prov-"+a.proveedor_id, sort:a.orden ?? 999, overrides: ov[a.id] || {}, manual: man[a.id] || {} }; });
+      extinguir: !!a.a_extinguir, refProv:a.ref_proveedor || "", pallet:a.uds_pallet, price:num0(a.precio), supplier:"prov-"+a.proveedor_id, sort:a.orden ?? 999, overrides: ov[a.id] || {}, manual: man[a.id] || {} }; });
     state.orders = pe.data.map(fromRow);
     state.loaded.s = true; S.loaded = true;
   } catch(e){ console.error(e); toast("No se han podido cargar los datos del planificador."); S.loaded = true; }
