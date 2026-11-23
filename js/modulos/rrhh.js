@@ -743,10 +743,13 @@ const pctA = (a, b) => b ? (a / b * 100).toLocaleString("es-ES", { maximumFracti
 const diasDe = (ini, fin) => { const o = []; for (const d = new Date(ini + "T00:00:00Z"); d.toISOString().slice(0,10) <= fin; d.setUTCDate(d.getUTCDate() + 1)) o.push(d.toISOString().slice(0,10)); return o; };
 function pkPuesto(id){ const pu = R.data.puestoPor.get(id); return pu ? { k:"p" + pu.id, id:pu.id, clas:pu.clasificacion, dep:pu.departamento, pue:pu.nombre, ab:pu.abreviatura || pu.nombre.slice(0,4) } : null; }
 function pkPrincipal(p){ return (p.puesto_id && pkPuesto(p.puesto_id)) || { k:`x${p.clasificacion || ""}|${p.departamento || ""}|${p.puesto || ""}`, id:null, clas:p.clasificacion || null, dep:p.departamento || null, pue:p.puesto || null, ab:"—" }; }
-// reparto de puestos de un día: lo que no está repartido queda en el puesto principal
+// reparto de puestos de un día: si varias asignaciones cubren el día, manda la más concreta (la de periodo más corto;
+// a igualdad, la más reciente): un cambio de un solo día solo afecta a ese día. Lo que no se reparte queda en el puesto principal.
+const spanPP = r => (r.hasta ? Date.parse(r.hasta) : 4102444800000) - Date.parse(r.desde);
 function reparto(p, dia){
-  const X = (R.data.ppPor.get(p.id) || []).filter(r => r.desde <= dia && (!r.hasta || r.hasta >= dia));
+  let X = (R.data.ppPor.get(p.id) || []).filter(r => r.desde <= dia && (!r.hasta || r.hasta >= dia));
   const princ = pkPrincipal(p); if (!X.length) return [{ pk:princ, w:1 }];
+  if (X.length > 1){ const best = X.slice().sort((a, b) => spanPP(a) - spanPP(b) || (a.desde < b.desde ? 1 : -1))[0]; X = X.filter(r => r.desde === best.desde && (r.hasta || "") === (best.hasta || "")); }
   const tot = X.reduce((t, r) => t + +r.pct, 0), m = new Map();
   const add = (pk, w) => { if (!pk || w <= 1e-9) return; const o = m.get(pk.k); if (o) o.w += w; else m.set(pk.k, { pk, w }); };
   for (const r of X) add(pkPuesto(r.puesto_id), +r.pct / Math.max(100, tot));
@@ -907,37 +910,80 @@ function panelTrabajador(p){
   else c.append(tarjetaAusencias(p, ed, () => {}, tras), tarjetaPermisos(p, ed, () => {}, tras));
   return c;
 }
-// Puesto principal y reparto del tiempo entre puestos (% por día, con fechas)
+// Guarda el puesto (o el reparto entre dos puestos) de una persona en un día o periodo: sustituye lo que hubiera
+// con exactamente esas mismas fechas. Filas: [{ puesto_id, pct }]
+async function guardarPuestoDia(p, desde, hasta, filas, obs){
+  let q = sch().from("persona_puestos").delete().eq("persona_id", p.id).eq("desde", desde);
+  q = hasta ? q.eq("hasta", hasta) : q.is("hasta", null);
+  const r0 = await q; if (r0.error){ console.error(r0.error); toast("No se ha podido guardar"); return false; }
+  if (!filas.length) return true;
+  const r = await sch().from("persona_puestos").insert(filas.map(f => ({ persona_id:p.id, puesto_id:f.puesto_id, pct:f.pct, desde, hasta, observaciones:obs || null })));
+  if (r.error){ console.error(r.error); toast("No se ha podido guardar"); return false; }
+  return true;
+}
+// Formulario: puesto de un día (o periodo), con opción de repartir entre dos puestos
+function formPuestoDia(p, dia, tras, compacto){
+  const fld = (lab, n) => { const x = el("div","f"); x.append(el("label",null,lab), n); return x; };
+  const r0 = reparto(p, dia), prin = pkPrincipal(p);
+  const d1 = el("input"); d1.type = "date"; d1.value = dia; const d2 = el("input"); d2.type = "date"; d2.value = dia;
+  const s1 = selectPuesto(r0[0] && r0[0].pk.id || null), s2 = selectPuesto(r0[1] && r0[1].pk.id || null);
+  const p1 = el("input"); p1.type = "number"; p1.min = "1"; p1.max = "100"; p1.step = "5"; p1.value = String(Math.round((r0[1] ? r0[0].w : 1) * 100));
+  const p2 = el("span","hint"); const sync = () => { p2.textContent = s2.value ? `El resto (${Math.max(0, 100 - (+p1.value || 0))} %) en el segundo puesto.` : "Sin segundo puesto: el % que falte para 100 queda en su puesto principal."; };
+  p1.addEventListener("input", sync); s2.addEventListener("change", sync); sync();
+  const ob = el("input"); ob.placeholder = "Opcional";
+  const g = el("div","f2"); g.append(fld("Desde", d1), fld("Hasta (la misma fecha = solo ese día)", d2), fld("Puesto", s1), fld("% de la jornada en ese puesto", p1), fld("Segundo puesto (opcional)", s2), fld("Comentario", ob));
+  const box = el("div"); box.append(g, p2);
+  const b = el("button","btn small primary","Guardar puesto"); b.type = "button";
+  b.addEventListener("click", async () => {
+    if (!d1.value) return d1.focus(); if (d2.value && d2.value < d1.value) return toast("La fecha final es anterior a la inicial"); if (!s1.value) return s1.focus();
+    const v = +p1.value; if (!(v > 0 && v <= 100)) return toast("Pon un % entre 1 y 100");
+    const filas = [{ puesto_id:+s1.value, pct:v }]; if (s2.value && v < 100) filas.push({ puesto_id:+s2.value, pct:100 - v });
+    if (await guardarPuestoDia(p, d1.value, d2.value || d1.value, filas, ob.value.trim())){ toast(d1.value === (d2.value || d1.value) ? `Puesto del ${fec(d1.value)} guardado (solo ese día)` : "Puesto del periodo guardado"); tras(); } });
+  const v0 = el("button","btn small","Volver al puesto principal"); v0.type = "button"; v0.title = `Quita la asignación de esas fechas: vuelve a ${prin.pue || "su puesto principal"}`;
+  v0.addEventListener("click", async () => { if (await guardarPuestoDia(p, d1.value, d2.value || d1.value, [])){ toast("Vuelve a su puesto principal en esas fechas"); tras(); } });
+  const bs = el("div"); bs.style.cssText = "display:flex;gap:8px;margin-top:6px"; bs.append(b, v0); box.append(bs);
+  if (!compacto) box.append(el("p","hint","Un cambio de un día solo afecta a ese día: al día siguiente vuelve a su puesto principal. Si un día está asignado a la vez en un periodo largo y en ese día concreto, manda el del día."));
+  return box;
+}
+// Diálogo para cambiar el puesto de un trabajador un día (desde el cuadrante)
+function dialogoPuestoDia(p, dia){
+  let dlg = document.getElementById("dlgPuestoDia"); if (dlg) dlg.remove();
+  dlg = el("dialog"); dlg.id = "dlgPuestoDia"; dlg.style.maxWidth = "640px"; document.body.append(dlg);
+  const r = reparto(p, dia);
+  dlg.append(el("h2",null,`${p.nombre} · ${fec(dia)}`), el("p","sub",`Ahora: ${r.map(x => `${x.pk.pue || "sin puesto"} ${Math.round(x.w * 100)} %`).join(" · ")} · Puesto principal: ${pkPrincipal(p).pue || "sin puesto"}`));
+  dlg.append(formPuestoDia(p, dia, () => { dlg.close(); recargar(); }, false));
+  const lk = el("p","hint"); for (const x of r) if (x.pk.id){ const a = el("a",null,`Abreviatura de ${x.pk.pue} (${x.pk.ab}) en el Maestro de puestos ›`); a.href = "#datos"; a.style.marginRight = "12px"; a.addEventListener("click", e => { e.preventDefault(); dlg.close(); irPuesto(x.pk.id); }); lk.append(a); } dlg.append(lk);
+  const acts = el("div","actions"); const cl = el("button","btn","Cerrar"); cl.type = "button"; cl.addEventListener("click", () => dlg.close()); acts.append(cl); dlg.append(acts);
+  dlg.showModal();
+}
+// Puesto principal (con fecha de cambio) y puestos por día o periodo
 function tarjetaPuestos(p, ed, tras){
   const D = R.data, X = (D.ppPor.get(p.id) || []).slice().sort((a, b) => a.desde < b.desde ? 1 : -1);
   const box = el("div"); const fld = (lab, n) => { const x = el("div","f"); x.append(el("label",null,lab), n); return x; };
-  const hoyR = reparto(p, hoyKey).map(x => `${x.pk.pue || "sin puesto"} ${Math.round(x.w * 100)} %`).join(" · ");
-  box.append(el("p",null,`Hoy: ${hoyR}`));
-  // principal
-  const sp = selectPuesto(p.puesto_id); sp.disabled = !ed;
-  const g = el("div","f2"); g.append(fld("Puesto principal (se queda con el % que no se reparte)", sp));
-  if (ed){ const b = el("button","btn small primary","Guardar puesto principal"); b.type = "button"; b.style.alignSelf = "end";
-    b.addEventListener("click", async () => { const r = await sch().from("personas").update({ puesto_id: sp.value ? +sp.value : null }).eq("id", p.id); if (r.error){ console.error(r.error); return toast("No se ha podido guardar"); } toast("Puesto principal guardado"); tras(); }); g.append(b); }
-  box.append(g);
-  // reparto
-  box.append(el("h4",null,"Reparto en otros puestos"));
-  if (X.length){ const tw = el("div","tblwrap"); const t = el("table","tbl"); const hr = el("tr"); for (const x of ["Puesto","%","Desde","Hasta","Comentario", ed ? "" : null].filter(x => x !== null)) hr.append(el("th", x === "%" ? "n" : null, x)); t.append(el("thead")); t.tHead.append(hr);
-    const tb = el("tbody"); for (const r of X){ const pk = pkPuesto(r.puesto_id), tr = el("tr"); const vig = r.desde <= hoyKey && (!r.hasta || r.hasta >= hoyKey);
-      tr.append(el("td",null,pk ? `${pk.dep} › ${pk.pue}` : "—"), el("td","n",num1(+r.pct) + " %"), el("td",null,fec(r.desde)), el("td",null,r.hasta ? fec(r.hasta) : "sin fin"), el("td",null,(r.observaciones || "") + (vig ? (r.observaciones ? " · " : "") + "en vigor" : "")));
-      if (ed){ const td = el("td"); const x = el("button","btn small","Eliminar"); x.type = "button"; x.addEventListener("click", async () => { if (!confirm("¿Eliminar este reparto?")) return; const q = await sch().from("persona_puestos").delete().eq("id", r.id); if (q.error) return toast("No se ha podido eliminar"); toast("Reparto eliminado"); tras(); }); td.append(x); tr.append(td); }
+  const dia = (R.fp && R.fp.dia) || hoyKey;
+  box.append(el("p",null,`${fec(dia)}: ${reparto(p, dia).map(x => `${x.pk.pue || "sin puesto"} ${Math.round(x.w * 100)} %`).join(" · ")}`));
+  if (ed){ const c1 = el("div","card"); c1.style.margin = "0 0 10px"; c1.append(el("b",null,`Puesto en un día o periodo`)); c1.append(formPuestoDia(p, dia, tras, false)); box.append(c1); }
+  // lista de asignaciones
+  box.append(el("h4",null,"Asignaciones por día o periodo"));
+  if (X.length){ const tw = el("div","tblwrap"); const t = el("table","tbl"); const hr = el("tr"); for (const x of ["Desde","Hasta","Puesto","%","Comentario", ed ? "" : null].filter(x => x !== null)) hr.append(el("th", x === "%" ? "n" : null, x)); t.append(el("thead")); t.tHead.append(hr);
+    const tb = el("tbody"); for (const r of X){ const pk = pkPuesto(r.puesto_id), tr = el("tr");
+      tr.append(el("td",null,fec(r.desde)), el("td",null,r.hasta ? (r.hasta === r.desde ? "solo ese día" : fec(r.hasta)) : "sin fin"), el("td",null,pk ? `${pk.dep} › ${pk.pue}` : "—"), el("td","n",num1(+r.pct) + " %"), el("td",null,r.observaciones || ""));
+      if (ed){ const td = el("td"); const x = el("button","btn small","Eliminar"); x.type = "button"; x.addEventListener("click", async () => { if (!confirm("¿Eliminar esta asignación?")) return; const q = await sch().from("persona_puestos").delete().eq("id", r.id); if (q.error) return toast("No se ha podido eliminar"); toast("Asignación eliminada"); tras(); }); td.append(x); tr.append(td); }
       tb.append(tr); } t.append(tb); tw.append(t); box.append(tw); }
-  else box.append(el("p","hint","Sin reparto: todo su tiempo va a su puesto principal."));
-  if (ed){
-    const s2 = selectPuesto(null), pc = el("input"); pc.type = "number"; pc.min = "1"; pc.max = "100"; pc.step = "5"; pc.placeholder = "Ej.: 50";
-    const d1 = el("input"); d1.type = "date"; d1.value = hoyKey; const d2 = el("input"); d2.type = "date"; const ob = el("input"); ob.placeholder = "Opcional";
-    const g2 = el("div","f2"); g2.append(fld("Puesto", s2), fld("% del tiempo en ese puesto", pc), fld("Desde", d1), fld("Hasta (vacío = sin fin; un solo día: la misma fecha)", d2), fld("Comentario", ob));
-    const b = el("button","btn small primary","Añadir reparto"); b.type = "button";
-    b.addEventListener("click", async () => { if (!s2.value) return s2.focus(); const v = +pc.value; if (!(v > 0 && v <= 100)) return toast("Pon un % entre 1 y 100"); if (!d1.value) return d1.focus(); if (d2.value && d2.value < d1.value) return toast("La fecha final es anterior a la inicial");
-      const q = await sch().from("persona_puestos").insert({ persona_id:p.id, puesto_id:+s2.value, pct:v, desde:d1.value, hasta:d2.value || null, observaciones:ob.value.trim() || null });
-      if (q.error){ console.error(q.error); return toast("No se ha podido guardar el reparto"); } toast("Reparto guardado"); tras(); });
-    const fb = el("div"); fb.style.cssText = "border-top:1px solid var(--line);margin-top:8px;padding-top:8px"; fb.append(el("b",null,"Nuevo reparto"), g2, b,
-      el("p","hint","Ejemplo: si un día pasa la mitad de la jornada en Pintura, añade Pintura 50 % para ese día; el otro 50 % queda en su puesto principal. Para dos puestos distintos del principal, añade una línea por cada uno (si suman 100 %, el principal no cuenta ese día).")); box.append(fb);
-  }
+  else box.append(el("p","hint","Sin asignaciones: todos los días está en su puesto principal."));
+  // puesto principal con fecha de cambio
+  const c2 = el("details"); c2.style.marginTop = "10px"; c2.append(el("summary",null,`Cambiar el puesto principal (ahora: ${pkPrincipal(p).pue || "sin puesto"})`));
+  const sp = selectPuesto(p.puesto_id); sp.disabled = !ed; const df = el("input"); df.type = "date"; df.value = dia; df.disabled = !ed;
+  const g = el("div","f2"); g.append(fld("Nuevo puesto principal", sp), fld("A partir del día", df)); c2.append(g);
+  if (ed){ const b = el("button","btn small primary","Cambiar puesto principal"); b.type = "button";
+    b.addEventListener("click", async () => { const nuevo = sp.value ? +sp.value : null; if (nuevo === (p.puesto_id || null)) return toast("Es el mismo puesto"); if (!df.value) return df.focus();
+      // los días anteriores siguen en el puesto de antes: se guardan como asignación hasta el día previo
+      if (p.puesto_id){ const ini = p.fecha_alta && p.fecha_alta < df.value ? p.fecha_alta : "2000-01-01"; const d = new Date(df.value + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() - 1); const fin = d.toISOString().slice(0,10);
+        if (fin >= ini){ const q = await sch().from("persona_puestos").insert({ persona_id:p.id, puesto_id:p.puesto_id, pct:100, desde:ini, hasta:fin, observaciones:"Puesto principal anterior" }); if (q.error){ console.error(q.error); return toast("No se ha podido guardar el histórico"); } } }
+      const r = await sch().from("personas").update({ puesto_id:nuevo }).eq("id", p.id); if (r.error){ console.error(r.error); return toast("No se ha podido guardar"); }
+      toast(`Puesto principal cambiado desde el ${fec(df.value)}`); tras(); });
+    c2.append(b, el("p","hint","Los días anteriores a esa fecha siguen contando en el puesto de antes (se guarda como asignación). Los días con un puesto asignado expresamente no cambian.")); }
+  box.append(c2);
   return box;
 }
 // Bolsa de horas: a favor del trabajador (+), a favor de la empresa (−) y compensadas (−)
@@ -1067,7 +1113,7 @@ function tabTrabajador(box){
   for (const x of P){ const th = el("th",null,x.lab); th.style.cssText = "text-align:center;white-space:nowrap;padding:4px 6px"; if (F.escala === "dia" && !D.K.laborable(x.ini, "planta")) th.style.color = "var(--ink-3)"; hr.append(th); }
   if (conH){ const th = el("th","n","Horas"); th.style.color = COL_H; hr.append(th); }
   t.append(el("thead")); t.tHead.append(hr); const tb = el("tbody");
-  const abSpan = pk => { const s = el("span",null,pk.ab || "—"); if (pk.id){ s.style.cssText = "cursor:pointer;text-decoration:underline dotted"; s.title = `${pk.dep} › ${pk.pue}: pulsa para ver o cambiar la abreviatura`; s.addEventListener("click", e => { e.stopPropagation(); irPuesto(pk.id); }); } return s; };
+  const abSpan = pk => { const s = el("span",null,pk.ab || "—"); if (pk.id && !(F.escala === "dia" && puede())){ s.style.cssText = "cursor:pointer;text-decoration:underline dotted"; s.title = `${pk.dep} › ${pk.pue}: pulsa para ver o cambiar la abreviatura`; s.addEventListener("click", e => { e.stopPropagation(); irPuesto(pk.id); }); } return s; };
   let grupo = null;
   for (const f of filas){
     const g = `${f.pk.clas || "Sin sección"} › ${f.pk.dep || "Sin departamento"}`;
@@ -1087,7 +1133,8 @@ function tabTrabajador(box){
       else { const [txt, bg, fg] = COD_EST[rep.k]; td.style.background = bg; td.style.color = fg; td.style.fontWeight = "700"; td.append(txt); }
       if (conH && hEf > 0.004){ const hh = el("span",null,` /${F.escala === "dia" ? num1(hEf) : fmtH(hEf)}`); hh.style.cssText = `color:${rep.k === "trab" || rep.k === "nolab" || rep.k === "fuera" ? COL_H : "inherit"};font-size:10.5px`; td.append(hh); }
       // detalle al pasar el ratón
-      if (F.escala === "dia"){ const r = dd[0]; td.title = r.st.e === "fuera" ? "No está en plantilla" : `${r.st.t || "Trabajando"}${r.rep.length ? " · " + r.rep.map(x => `${x.pk.pue || "sin puesto"} ${Math.round(x.w * 100)} %`).join(" · ") : ""}${r.lab ? ` · ${num1(r.hEf)} h efectivas` : " · no laborable"}`; }
+      if (F.escala === "dia"){ const r = dd[0]; td.title = r.st.e === "fuera" ? "No está en plantilla" : `${r.st.t || "Trabajando"}${r.rep.length ? " · " + r.rep.map(x => `${x.pk.pue || "sin puesto"} ${Math.round(x.w * 100)} %`).join(" · ") : ""}${r.lab ? ` · ${num1(r.hEf)} h efectivas` : " · no laborable"}`;
+        if (r.st.e !== "fuera" && puede()){ td.style.cursor = "pointer"; td.title += " · Pulsa para cambiar el puesto de este día"; const dia = P[i].ini; td.addEventListener("click", () => dialogoPuestoDia(f.p, dia)); } }
       else { const det = new Map(); for (const r of dd){ if (!r.lab || r.st.e === "fuera") continue; const cd = codigoDia(r); const l = cd.k === "trab" ? cd.pks.map(x => x.pk.ab).join("+") + (cd.ph ? "·P" : "") : COD_EST[cd.k] ? COD_EST[cd.k][0] : cd.k; det.set(l, (det.get(l) || 0) + 1); }
         td.title = [...det.entries()].map(([l, n]) => `${l}: ${n} día${n === 1 ? "" : "s"}`).join(" · ") + ` · ${fmtH(hEf)} h efectivas`; }
       tr.append(td); });
@@ -1108,7 +1155,7 @@ function tabTrabajador(box){
     { const tr = el("tr","wk"); tr.append(el("td",null,"% de actividad")); let e = 0, dsp = 0; P.forEach((x, i) => { const a = sumaH(H, i, "hEf"), b = sumaH(H, i, "hDisp"); e += a; dsp += b; tr.append(el("td","n", pctA(a, b))); }); tr.append(el("td","n", pctA(e, dsp))); tb2.append(tr); }
     t2.append(tb2); tw2.append(t2); box.append(tw2);
   }
-  box.append(el("p","hint",`Cada celda muestra el puesto (abreviatura) o la situación del trabajador${F.escala === "dia" ? "" : " más frecuente en sus días laborables del periodo (pasa el ratón para ver el detalle)"}${conH ? " y, tras la barra, las horas efectivas" : ""}. Las abreviaturas se definen en el Maestro de puestos de trabajo: pulsa una para cambiarla. Pulsa un nombre para trabajar sobre ese trabajador.`));
+  box.append(el("p","hint",`Cada celda muestra el puesto (abreviatura) o la situación del trabajador${F.escala === "dia" ? "" : " más frecuente en sus días laborables del periodo (pasa el ratón para ver el detalle)"}${conH ? " y, tras la barra, las horas efectivas" : ""}. Las abreviaturas se definen en el Maestro de puestos de trabajo: pulsa una para cambiarla. Pulsa un nombre para trabajar sobre ese trabajador${F.escala === "dia" ? "; pulsa una celda para cambiar el puesto de ese día (solo afecta a ese día; desde ahí también puedes ir a la abreviatura)" : ""}.`));
 }
 
 // Desplegable de departamentos agrupados por sección
