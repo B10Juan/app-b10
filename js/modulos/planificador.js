@@ -1112,7 +1112,17 @@ async function cargarStock(file, btn){
         disponible:numX(r.Disponible), minimos: r.Minimos == null ? null : numX(r.Minimos), disponible_real: fis - res - ven }; });
     if (!data.length) throw new Error("La hoja INVENTSUM está vacía.");
     const fecha = new Date(file.lastModified || Date.now()).toISOString();
-    if (!confirm(`Se cargarán ${data.length} líneas de stock del fichero «${file.name}» (guardado el ${fechaLarga(fecha)}). ¿Continuar?`)){ btn.disabled = false; btn.textContent = "Cargar fichero de stock"; return; }
+    // Control: artículos del planificador que hoy tienen stock de AX y que no vienen en este fichero
+    const nuevas = new Set(data.map(r => r.articulo_id + (r.config_id || "")));
+    const faltan = state.products.filter(p => p.stockAX && p.clave && !nuevas.has(p.clave));
+    let aviso = "";
+    if (faltan.length){
+      const porProv = {}; for (const p of faltan){ const n = (sup(p.supplier) || {}).name || ""; (porProv[n] = porProv[n] || []).push(p.clave); }
+      aviso = `\n\n⚠ ATENCIÓN: ${faltan.length} artículo${faltan.length === 1 ? "" : "s"} del planificador NO aparece${faltan.length === 1 ? "" : "n"} en este fichero y se quedará${faltan.length === 1 ? "" : "n"} sin stock de AX:\n` +
+        Object.entries(porProv).map(([n, cs]) => `• ${n}: ${cs.slice(0,6).join(", ")}${cs.length > 6 ? ` y ${cs.length - 6} más` : ""}`).join("\n") +
+        "\n\nRevisa que la hoja INVENTSUM esté completa (sin filtros en la consulta de AX) antes de continuar.";
+    }
+    if (!confirm(`Se cargarán ${data.length} líneas de stock del fichero «${file.name}» (guardado el ${fechaLarga(fecha)}).${aviso}\n\n¿Continuar?`)){ btn.disabled = false; btn.textContent = "Cargar fichero de stock"; return; }
     btn.textContent = "Guardando…";
     const c = chk(await sb.schema("core").from("cargas").insert({ tipo:"stock", fichero:file.name, filas:data.length, fecha_datos:fecha, notas:"Carga desde la app" }).select("id").single());
     for (let i = 0; i < data.length; i += 500) chk(await sb.schema("ax").from("stock_inventsum").insert(data.slice(i, i+500).map(r => Object.assign({ carga_id:c.data.id }, r))));
