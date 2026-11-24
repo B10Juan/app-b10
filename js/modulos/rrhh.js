@@ -1453,10 +1453,25 @@ function tabTrabajador(box){
   if (conH){ const th = el("th","n","Horas"); th.style.color = COL_H; hr.append(th); }
   t.append(el("thead")); t.tHead.append(hr); const tb = el("tbody");
   const abSpan = pk => { const s = el("span",null,pk.ab || "—"); if (pk.id && !(F.escala === "dia" && puede())){ s.style.cssText = "cursor:pointer;text-decoration:underline dotted"; s.title = `${pk.dep} › ${pk.pue}: pulsa para ver o cambiar la abreviatura`; s.addEventListener("click", e => { e.stopPropagation(); irPuesto(pk.id); }); } return s; };
+  // grupos sección › departamento: pulsa la cabecera para plegar o desplegar
+  if (!R.plegT) R.plegT = new Set();
+  const gDe = f => `${f.pk.clas || "Sin sección"} › ${f.pk.dep || "Sin departamento"}`, GR = new Map();
+  for (const f of filas){ const g = gDe(f); if (!GR.has(g)) GR.set(g, []); GR.get(g).push(f); }
+  { const c = el("div"); c.style.cssText = "display:flex;gap:8px;margin:0 0 8px";
+    const ab = el("button","btn small","Desplegar todo"); ab.addEventListener("click", () => { R.plegT.clear(); render(); });
+    const cb = el("button","btn small","Plegar todo"); cb.addEventListener("click", () => { for (const g of GR.keys()) R.plegT.add(g); render(); });
+    c.append(ab, cb); box.append(c); }
   let grupo = null;
   for (const f of filas){
-    const g = `${f.pk.clas || "Sin sección"} › ${f.pk.dep || "Sin departamento"}`;
-    if (g !== grupo){ grupo = g; const tr = el("tr","wk"); const td = el("td",null,g); td.style.fontWeight = "700"; tr.append(td); const td2 = el("td"); td2.colSpan = P.length + (conH ? 1 : 0); tr.append(td2); tb.append(tr); }
+    const g = gDe(f), cerrado = R.plegT.has(g);
+    if (g !== grupo){ grupo = g; const G = GR.get(g); const tr = el("tr","wk"); tr.style.cursor = "pointer"; tr.title = cerrado ? "Pulsa para desplegar" : "Pulsa para plegar";
+      tr.addEventListener("click", () => { cerrado ? R.plegT.delete(g) : R.plegT.add(g); render(); });
+      const td = el("td"); td.style.cssText = "font-weight:700;white-space:nowrap"; td.append(el("span","chev", cerrado ? "▸ " : "▾ "), g, el("small",null,` (${G.length})`)); tr.append(td);
+      if (cerrado){ P.forEach((x, i) => { const h = sum(G, f2 => f2.R2[i].reduce((t, r) => t + r.hEf, 0)); const c2 = el("td", null, h > 0.004 ? (F.escala === "dia" ? num1(h) : fmtH(h)) + " h" : ""); c2.style.cssText = `text-align:center;white-space:nowrap;padding:3px 5px;color:${COL_H};font-size:10.5px`; tr.append(c2); });
+        if (conH){ const c3 = el("td","n", fmtH(sum(G, f2 => f2.R2.reduce((t, dd) => t + dd.reduce((u, r) => u + r.hEf, 0), 0)))); c3.style.cssText = `color:${COL_H};font-weight:700`; tr.append(c3); } }
+      else { const td2 = el("td"); td2.colSpan = P.length + (conH ? 1 : 0); tr.append(td2); }
+      tb.append(tr); }
+    if (cerrado) continue;
     const tr = el("tr"); const tn = el("td",null,f.p.nombre + (f.p.tipo_vinculo === "ETT" ? " · ETT" : "")); tn.style.cssText = "white-space:nowrap;cursor:pointer"; tn.title = "Trabajar sobre este trabajador (Introducción de datos)";
     tn.addEventListener("click", () => { R.selP = f.p.id; R.tabD = "plantilla"; render(); }); tr.append(tn);
     let totH = 0;
