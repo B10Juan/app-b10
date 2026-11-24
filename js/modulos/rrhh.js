@@ -317,11 +317,16 @@ function tabEmpleado(box){
   const c = el("div","ctrl");
   const qd = el("div","fld"); const q = el("input"); q.type = "search"; q.placeholder = "Nombre o código"; q.value = R.fe.q; q.dataset.k = "rr-eq"; q.addEventListener("input", () => { R.fe.q = q.value; render(); }); qd.append(el("span",null,"Buscar"), q); c.append(qd);
   const dd = el("div","fld"); const s = el("select"); s.append(new Option("Todos","")); for (const g of [...new Set(D.personas.map(p => p.departamento || "Sin asignar"))].sort()) s.append(new Option(g, g)); s.value = R.fe.dep; s.addEventListener("change", () => { R.fe.dep = s.value; render(); }); dd.append(el("span",null,"Departamento"), s); c.append(dd);
+  const selF = (lab, key, vals) => { const d = el("div","fld"), x = el("select"); x.append(new Option("Todos","")); for (const v of vals) x.append(new Option(v, v)); x.value = R.fe[key] || ""; if (x.value) x.classList.add("activo");
+    x.addEventListener("change", () => { R.fe[key] = x.value; render(); }); d.append(el("span",null,lab), x); c.append(d); };
+  const pueE = p => p.puesto || p.categoria || "Sin puesto";
+  const secs = [...new Set(D.personas.map(clasDe))]; selF("Sección", "sec", [...ORDEN_CLAS.filter(g => secs.includes(g)), ...secs.filter(g => !ORDEN_CLAS.includes(g)).sort()]);
+  selF("Puesto", "pue", [...new Set(D.personas.filter(p => (!R.fe.sec || clasDe(p) === R.fe.sec) && (!R.fe.dep || (p.departamento || "Sin asignar") === R.fe.dep)).map(pueE))].sort());
   box.append(c);
   const by = new Map(); for (const n of D.nomina) if (M.includes(n.periodo)){ const x = by.get(n.codigo) || {}; x[n.periodo] = n; by.set(n.codigo, x); }
   const qq = R.fe.q.trim().toLowerCase();
   const L = [...by.entries()].map(([cod, x]) => ({ cod, x, p: D.porCodigo.get(cod) || { codigo:cod, nombre:"(sin ficha)" } }))
-    .filter(r => (!qq || `${r.p.nombre} ${r.cod}`.toLowerCase().includes(qq)) && (!R.fe.dep || (r.p.departamento || "Sin asignar") === R.fe.dep))
+    .filter(r => (!qq || `${r.p.nombre} ${r.cod}`.toLowerCase().includes(qq)) && (!R.fe.dep || (r.p.departamento || "Sin asignar") === R.fe.dep) && (!R.fe.sec || clasDe(D.porCodigo.get(r.cod)) === R.fe.sec) && (!R.fe.pue || pueE(r.p) === R.fe.pue))
     .map(r => ({ ...r, tot: sum(M, m => r.x[m] ? valEmpM(r.cod, m, r.x[m]) : 0), ord: sum(M, m => r.x[m] ? valEmpM(r.cod, m, r.x[m]) : 0), nm: M.filter(m => r.x[m] && (r.x[m].bruto || r.x[m].coste_total)).length }))
     .sort((a,b) => b.tot - a.tot);
   const tw = el("div","tblwrap"); const t = el("table","tbl"); const hr = el("tr");
