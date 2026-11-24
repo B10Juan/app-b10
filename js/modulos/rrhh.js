@@ -629,14 +629,16 @@ function costesPuesto(M){
       const todoAnio = !p.fecha_alta || p.fecha_alta <= `${anio}-01-01`;
       const vacGen = aj ? (todoAnio ? PA.diasVacAnio / 12 : PA.diasVacMes) * enPl / dias.length : 0;
       const ajVac = aj ? (vacGen - vacDis) * hd8 * ch : 0, ajBolsa = aj ? bolsaH * ch : 0;
-      const c = { ...x, ajVac, ajBolsa, imp: costeMes + ajVac + ajBolsa, hPerm, hLibre, hBaja, cPerm:hPerm * ch, cLibre:hLibre * ch, cBaja:hBaja * ch, vacGen, vacDis: aj ? vacDis : 0, bolsaH: aj ? bolsaH : 0 };
       // reparto entre puestos: por horas efectivas; si no trabajó, por jornada en plantilla; si no, al puesto principal
       const L = [...acc.values()], tEf = sum(L, o => o.hEf), tBase = sum(L, o => o.base);
+      // bajas: coste real de empresa del mes (fichero de costes, sin indemnizaciones) en proporción a las horas de baja sobre la jornada del mes
+      const costeReal = x.nom + x.pro + x.ett, cBaja = tBase ? costeReal * Math.min(1, hBaja / tBase) : 0;
+      const c = { ...x, ajVac, ajBolsa, imp: costeMes + ajVac + ajBolsa, hPerm, hLibre, hBaja, cPerm:hPerm * ch, cLibre:hLibre * ch, cBaja, vacGen, vacDis: aj ? vacDis : 0, bolsaH: aj ? bolsaH : 0 };
       const partes = tEf > 0 ? L.map(o => [o, o.hEf / tEf]) : tBase > 0 ? L.map(o => [o, o.base / tBase]) : [[{ pk:pkPrincipal(p), base:0, hEf:0 }, 1]];
       for (const [o, f] of partes){ const v = leaf(o.pk, p).v[i]; for (const k of COMP) if (k !== "hEf" && k !== "base") v[k] += (c[k] || 0) * f; v.hEf += o.hEf; v.base += o.base; }
       det.set(`${p.id}|${m}`, { p, cod, m, x, c, ch, ref: esNom ? costeAnualRef(cod, anio) : null, aj, esNom, todoAnio, rate: todoAnio ? PA.diasVacAnio / 12 : PA.diasVacMes, enPl, nDias:dias.length, hd:hd8, vacDias,
         bolsa:(D.hc || []).filter(h => h.persona_id === p.id && h.fecha.slice(0,7) === m.slice(0,7)), criterio: tEf > 0 ? "horas efectivas" : tBase > 0 ? "jornada en plantilla (no trabajó ese mes)" : "puesto principal (sin días laborables en plantilla)",
-        partes: partes.map(([o, f]) => ({ pk:o.pk, hEf:o.hEf, base:o.base, f })), PA:{ ...PA } });
+        partes: partes.map(([o, f]) => ({ pk:o.pk, hEf:o.hEf, base:o.base, f })), PA:{ ...PA }, tBase, costeReal });
     }
   });
   return Object.assign([...filas.values()], { det });
@@ -679,7 +681,7 @@ function detalleCalculo(d, pkFoco){
     tr.append(el("td",null,`${q.pk.dep || "—"} › ${q.pk.pue || "sin puesto"}`), el("td","n",h2(q.hEf)), el("td","n",h2(q.base)), el("td","n",pctf(q.f)), el("td","n",e2(c.imp * q.f))); tb2.append(tr); }
   t2.append(tb2); dlg.append(t2);
   if (c.hPerm || c.hLibre || c.hBaja){ dlg.append(el("h4",null,"Horas no trabajadas (informativo, incluido en el coste imputado)")); const ul = el("ul");
-    if (c.hPerm) ul.append(el("li",null,`Permisos retribuidos: ${h2(c.hPerm)} h × ${eur2(ch)} = ${e2(c.cPerm)}`)); if (c.hLibre) ul.append(el("li",null,`Libre disposición: ${h2(c.hLibre)} h × ${eur2(ch)} = ${e2(c.cLibre)}`)); if (c.hBaja) ul.append(el("li",null,`Bajas: ${h2(c.hBaja)} h × ${eur2(ch)} = ${e2(c.cBaja)}`)); dlg.append(ul); }
+    if (c.hPerm) ul.append(el("li",null,`Permisos retribuidos: ${h2(c.hPerm)} h × ${eur2(ch)} = ${e2(c.cPerm)}`)); if (c.hLibre) ul.append(el("li",null,`Libre disposición: ${h2(c.hLibre)} h × ${eur2(ch)} = ${e2(c.cLibre)}`)); if (c.hBaja) ul.append(el("li",null,`Bajas: coste real de empresa del mes ${eur2(d.costeReal)} × ${h2(c.hBaja)} h de baja / ${h2(d.tBase)} h de jornada del mes = ${e2(c.cBaja)} (lo que cuesta de verdad a la empresa según el fichero de costes)`)); dlg.append(ul); }
   const acts = el("div","actions"); const fb = el("button","btn","Abrir ficha"); fb.type = "button"; fb.addEventListener("click", () => { dlg.close(); const q = R.data.personas.find(z => z.id === p.id); if (q) ficha(q); });
   const cl = el("button","btn primary","Cerrar"); cl.type = "button"; cl.addEventListener("click", () => dlg.close()); acts.append(fb, cl); dlg.append(acts);
   dlg.showModal();
@@ -782,10 +784,10 @@ function tabCuadre(box){
   titulo("Coste de las horas no trabajadas (incluido en el coste imputado)");
   linea("Permisos retribuidos", a => a.cPerm, { sub:true });
   linea("Libre disposición", a => a.cLibre, { sub:true });
-  linea("Bajas (IT y otras)", a => a.cBaja, { sub:true });
+  linea("Bajas (IT y otras): coste real de empresa de esos días", a => a.cBaja, { sub:true });
   linea("Total horas no trabajadas", a => a.cPerm + a.cLibre + a.cBaja, { b:true });
   t.append(tb); tw.append(t); box.append(tw);
-  box.append(el("p","hint",`Pulsa cualquier importe para ver las personas que lo forman y, en cada una, cómo se ha calculado. Cada importe va a la sección (o departamento) del puesto en el que el trabajador ha estado ese mes, en proporción a sus horas efectivas en cada puesto. Ajuste de vacaciones: (días generados en el mes − días disfrutados) × horas/día × coste hora; ajuste de bolsa: horas × coste hora. El coste de las horas no trabajadas es informativo: horas de permisos, libre disposición y bajas × coste hora.`));
+  box.append(el("p","hint",`Pulsa cualquier importe para ver las personas que lo forman y, en cada una, cómo se ha calculado. Cada importe va a la sección (o departamento) del puesto en el que el trabajador ha estado ese mes, en proporción a sus horas efectivas en cada puesto. Ajuste de vacaciones: (días generados en el mes − días disfrutados) × horas/día × coste hora; ajuste de bolsa: horas × coste hora. El coste de las horas no trabajadas es informativo: permisos y libre disposición, horas × coste hora; bajas, el coste real de empresa del mes (fichero de costes) en proporción a las horas de baja.`));
 }
 function cuadreTrabajador(box, H, M, i0, hasta){
   const por = new Map(); for (const h of H){ if (!h.p || String(h.p.id).startsWith("c") || h.p.id === "ettsin") continue; let x = por.get(h.p.id); if (!x){ x = { p:h.p, H:[] }; por.set(h.p.id, x); } x.H.push(h); }
