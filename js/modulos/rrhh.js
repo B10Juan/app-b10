@@ -586,7 +586,8 @@ function tabEtt(box){
 //   + ajuste de vacaciones = (días generados en el mes − días disfrutados) × horas/día × coste hora   (generados: N días al mes)
 //   + ajuste de bolsa de horas = (horas a favor del trabajador − a favor de la empresa − compensadas) × coste hora
 //   = coste imputado, que se reparte entre los puestos por las horas efectivamente trabajadas en cada uno.
-// Las ETT se imputan por su factura (sin ajustes). A final de año los ajustes de cada trabajador deben quedar a cero.
+// Los ajustes solo se aplican a la M.O.D (sección de la ficha); M.O.E, M.O.I y ETT se imputan por su coste del mes (ETT: factura).
+// A final de año los ajustes de cada trabajador deben quedar a cero.
 const PARAM_DEF = { diasVacAnio:34, diasVacMes:2.5, horasConvenio:1744 };
 function paramCostes(){ if (!R.param){ let x = {}; try { x = JSON.parse(localStorage.getItem("b10.costes.param") || "{}"); } catch(e){} R.param = { ...PARAM_DEF, ...x }; } return R.param; }
 function guardarParam(){ try { localStorage.setItem("b10.costes.param", JSON.stringify(R.param)); } catch(e){} }
@@ -624,10 +625,11 @@ function costesPuesto(M){
         for (const { pk, w } of r.rep){ let o = acc.get(pk.k); if (!o){ o = { pk, base:0, hEf:0 }; acc.set(pk.k, o); } o.base += r.hd * w; o.hEf += r.hEf * w; } }
       const bolsaH = (D.hc || []).filter(h => h.persona_id === p.id && h.fecha.slice(0,7) === m.slice(0,7)).reduce((t, h) => t + signoHC(h), 0);
       // días generados: quien está de alta desde el inicio del año genera sus días del año / 12 (34 / 12 = 2,83); quien entra durante el año, N al mes
+      const aj = esNom && p.clasificacion === "M.O.D";   // los ajustes de vacaciones y bolsa solo se aplican a la M.O.D
       const todoAnio = !p.fecha_alta || p.fecha_alta <= `${anio}-01-01`;
-      const vacGen = esNom ? (todoAnio ? PA.diasVacAnio / 12 : PA.diasVacMes) * enPl / dias.length : 0;
-      const ajVac = esNom ? (vacGen - vacDis) * hd8 * ch : 0, ajBolsa = esNom ? bolsaH * ch : 0;
-      const c = { ...x, ajVac, ajBolsa, imp: costeMes + ajVac + ajBolsa, hPerm, hLibre, hBaja, cPerm:hPerm * ch, cLibre:hLibre * ch, cBaja:hBaja * ch, vacGen, vacDis: esNom ? vacDis : 0, bolsaH: esNom ? bolsaH : 0 };
+      const vacGen = aj ? (todoAnio ? PA.diasVacAnio / 12 : PA.diasVacMes) * enPl / dias.length : 0;
+      const ajVac = aj ? (vacGen - vacDis) * hd8 * ch : 0, ajBolsa = aj ? bolsaH * ch : 0;
+      const c = { ...x, ajVac, ajBolsa, imp: costeMes + ajVac + ajBolsa, hPerm, hLibre, hBaja, cPerm:hPerm * ch, cLibre:hLibre * ch, cBaja:hBaja * ch, vacGen, vacDis: aj ? vacDis : 0, bolsaH: aj ? bolsaH : 0 };
       // reparto entre puestos: por horas efectivas; si no trabajó, por jornada en plantilla; si no, al puesto principal
       const L = [...acc.values()], tEf = sum(L, o => o.hEf), tBase = sum(L, o => o.base);
       const partes = tEf > 0 ? L.map(o => [o, o.hEf / tEf]) : tBase > 0 ? L.map(o => [o, o.base / tBase]) : [[{ pk:pkPrincipal(p), base:0, hEf:0 }, 1]];
@@ -695,8 +697,8 @@ function tabCuadre(box){
   linea("= Coste de las nóminas del mes", a => a.nom + a.ind + a.pro, { b:true });
   linea("+ Facturas ETT (base imponible)", a => a.ett, { sub:true });
   linea("= Coste de personal", a => a.nom + a.ind + a.pro + a.ett, { b:true });
-  linea("+ Ajuste de vacaciones (generadas − disfrutadas)", a => a.ajVac, { sub:true });
-  linea("+ Ajuste de bolsa de horas (horas a cuenta − recuperadas)", a => a.ajBolsa, { sub:true });
+  linea("+ Ajuste de vacaciones (generadas − disfrutadas, solo M.O.D)", a => a.ajVac, { sub:true });
+  linea("+ Ajuste de bolsa de horas (horas a cuenta − recuperadas, solo M.O.D)", a => a.ajBolsa, { sub:true });
   linea("= Coste imputado", a => a.imp, { b:true });
   titulo("Provisión acumulada en el año (a final del mes) — debe quedar a cero en diciembre");
   linea("Provisión de vacaciones", a => a.ajVac, { sub:true, acu:true });
@@ -719,7 +721,7 @@ function tabCuadre(box){
 function cuadreTrabajador(box, H, M, i0, hasta){
   const por = new Map(); for (const h of H){ if (!h.p || String(h.p.id).startsWith("c") || h.p.id === "ettsin") continue; let x = por.get(h.p.id); if (!x){ x = { p:h.p, H:[] }; por.set(h.p.id, x); } x.H.push(h); }
   const PA = paramCostes(), anio = +M[0].slice(0,4);
-  const L = [...por.values()].filter(x => x.p.tipo_vinculo !== "ETT").sort((a, b) => a.p.nombre.localeCompare(b.p.nombre, "es"));
+  const L = [...por.values()].filter(x => x.p.tipo_vinculo !== "ETT" && x.p.clasificacion === "M.O.D").sort((a, b) => a.p.nombre.localeCompare(b.p.nombre, "es"));
   const tw = el("div","tblwrap"); const t = el("table","tbl fija"); const hr = el("tr");
   for (const h of ["Trabajador","Coste hora","Coste del mes","Ajuste vacaciones","Ajuste bolsa","Coste imputado","Horas efectivas","Prov. vacaciones acumulada","Días vac. pendientes","Prov. bolsa acumulada","Horas bolsa pendientes"]) hr.append(el("th", h === "Trabajador" ? null : "n", h)); t.append(el("thead")); t.tHead.append(hr);
   const tb = el("tbody"), T = vacioC(), TA = vacioC();
@@ -730,7 +732,7 @@ function cuadreTrabajador(box, H, M, i0, hasta){
     tr.style.cursor = "pointer"; tr.title = "Abrir la ficha"; tr.addEventListener("click", () => { const p = R.data.personas.find(q => q.id === x.p.id); if (p) ficha(p); }); tb.append(tr); }
   const tr = el("tr","wk"); tr.append(el("td",null,`Total (${tb.childNodes.length})`), el("td"), el("td","n",eur(T.nom + T.ind + T.pro)), el("td","n",eur(T.ajVac)), el("td","n",eur(T.ajBolsa)), el("td","n",eur(T.imp)), el("td","n",fmtH(T.hEf)), el("td","n",eur(TA.ajVac)), el("td","n",num1(Math.round((TA.vacGen - TA.vacDis) * 100) / 100)), el("td","n",eur(TA.ajBolsa)), el("td","n",num1(Math.round(TA.bolsaH * 100) / 100))); tb.append(tr);
   t.append(tb); tw.append(t); box.append(tw);
-  box.append(el("p","hint",`Personas de nómina en ${mesLab(M[i0])}. Coste hora = coste anual estimado con su última nómina sin incidencias del año / ${eur(PA.horasConvenio)} h. Las columnas «acumulada» y «pendientes» suman de enero al mes elegido: a final de año deberían quedar a cero (o en los días y horas que pasan al año siguiente).`));
+  box.append(el("p","hint",`Personas de nómina de la M.O.D en ${mesLab(M[i0])} (los ajustes solo se aplican a la M.O.D). Coste hora = coste anual estimado con su última nómina sin incidencias del año / ${eur(PA.horasConvenio)} h. Las columnas «acumulada» y «pendientes» suman de enero al mes elegido: a final de año deberían quedar a cero (o en los días y horas que pasan al año siguiente).`));
 }
 
 // ---------- Situación de la persona (activa, IT, excedencia, vacaciones, baja definitiva) ----------
