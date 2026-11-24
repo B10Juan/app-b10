@@ -4,6 +4,9 @@ const W = "https://b10bath.com/wp-content/uploads";
 export const MARCA = {
   logo: `${W}/2024/03/logo-b10.png`,
   lema: `${W}/2024/03/be-bath-b10-1024x174.png`,
+  // Portada: el vídeo de la colección de la web (1,2 MB, 5 s en bucle) y una foto fija de respaldo
+  portadaVideo: `${W}/2025/11/Collection-b10.mp4`,
+  portada: `${W}/2025/12/bathtubs-collecion-b10-01.jpg`,
   img: {
     compras:      `${W}/2025/12/washbasins-collecion-b10-02-1300x750.jpg`,
     planificador: `${W}/2025/12/bathtubs-collecion-b10-01.jpg`,
@@ -62,6 +65,12 @@ const P = {
   datos:'<rect x="5" y="3.5" width="14" height="17.5" rx="1.5"/><path d="M9 3.5h6v3H9z"/><path d="M8.5 11h7M8.5 14.5h7M8.5 18h4"/>',
   vacaciones:'<rect x="3.5" y="5" width="17" height="15.5" rx="1.5"/><path d="M3.5 9.5h17M8 3v4M16 3v4M12 12.5v5M9.5 15h5"/>',
   organigrama:'<rect x="9" y="3" width="6" height="4.5" rx="1"/><rect x="2.5" y="16.5" width="6" height="4.5" rx="1"/><rect x="15.5" y="16.5" width="6" height="4.5" rx="1"/><path d="M12 7.5v4.5M5.5 16.5V12h13v4.5"/>',
+  operaciones:'<path d="M2 7h11v9H2z"/><path d="M13 10h4l3 3v3h-7"/><circle cx="6" cy="17.5" r="1.8"/><circle cx="16.5" cy="17.5" r="1.8"/>',
+  comercial:'<path d="M3 20h18"/><path d="M5 16l4-5 4 3 6-8"/><path d="M15 6h4v4"/>',
+  ajustes:'<circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/>',
+  panel:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/><path d="M15 10l-2 2 2 2"/>',
+  flecha:'<path d="M9 6l6 6-6 6"/>',
+  menu:'<path d="M4 7h16M4 12h16M4 17h16"/>',
   salir:'<path d="M15 4h4a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-4"/><path d="M10 17l-5-5 5-5M5 12h11"/>',
 };
 export function icono(n){
