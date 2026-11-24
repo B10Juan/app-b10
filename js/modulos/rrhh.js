@@ -587,7 +587,7 @@ function tabEtt(box){
 //   + ajuste de bolsa de horas = (horas a favor del trabajador − a favor de la empresa − compensadas) × coste hora
 //   = coste imputado, que se reparte entre los puestos por las horas efectivamente trabajadas en cada uno.
 // Las ETT se imputan por su factura (sin ajustes). A final de año los ajustes de cada trabajador deben quedar a cero.
-const PARAM_DEF = { diasVacMes:2.5, horasConvenio:1744 };
+const PARAM_DEF = { diasVacAnio:34, diasVacMes:2.5, horasConvenio:1744 };
 function paramCostes(){ if (!R.param){ let x = {}; try { x = JSON.parse(localStorage.getItem("b10.costes.param") || "{}"); } catch(e){} R.param = { ...PARAM_DEF, ...x }; } return R.param; }
 function guardarParam(){ try { localStorage.setItem("b10.costes.param", JSON.stringify(R.param)); } catch(e){} }
 // coste anual estimado de una persona con la última nómina «limpia» hasta el final del año indicado
@@ -623,7 +623,9 @@ function costesPuesto(M){
         else if (r.st.e === "it" || r.st.e === "otras") hBaja += r.hd;
         for (const { pk, w } of r.rep){ let o = acc.get(pk.k); if (!o){ o = { pk, base:0, hEf:0 }; acc.set(pk.k, o); } o.base += r.hd * w; o.hEf += r.hEf * w; } }
       const bolsaH = (D.hc || []).filter(h => h.persona_id === p.id && h.fecha.slice(0,7) === m.slice(0,7)).reduce((t, h) => t + signoHC(h), 0);
-      const vacGen = esNom ? PA.diasVacMes * enPl / dias.length : 0;
+      // días generados: quien está de alta desde el inicio del año genera sus días del año / 12 (34 / 12 = 2,83); quien entra durante el año, N al mes
+      const todoAnio = !p.fecha_alta || p.fecha_alta <= `${anio}-01-01`;
+      const vacGen = esNom ? (todoAnio ? PA.diasVacAnio / 12 : PA.diasVacMes) * enPl / dias.length : 0;
       const ajVac = esNom ? (vacGen - vacDis) * hd8 * ch : 0, ajBolsa = esNom ? bolsaH * ch : 0;
       const c = { ...x, ajVac, ajBolsa, imp: costeMes + ajVac + ajBolsa, hPerm, hLibre, hBaja, cPerm:hPerm * ch, cLibre:hLibre * ch, cBaja:hBaja * ch, vacGen, vacDis: esNom ? vacDis : 0, bolsaH: esNom ? bolsaH : 0 };
       // reparto entre puestos: por horas efectivas; si no trabajó, por jornada en plantilla; si no, al puesto principal
@@ -640,8 +642,8 @@ function valDato(a, k){ return k === "coste" ? a.nom + a.ind + a.pro + a.ett : k
 function ctrlParam(box){
   const PA = paramCostes(), c = el("div","ctrl");
   const n = (k, st) => { const i = el("input"); i.type = "number"; i.step = st; i.min = "0"; i.value = String(PA[k]); i.style.width = "90px"; i.addEventListener("change", () => { const v = +i.value; if (v > 0){ PA[k] = v; guardarParam(); render(); } }); return i; };
-  c.append(flCtrl("Días de vacaciones generados al mes", n("diasVacMes","0.01")), flCtrl("Horas anuales de convenio", n("horasConvenio","1")));
-  c.append(el("span","hint",`Coste hora = coste anual estimado / ${eur(PA.horasConvenio)} h. Vacaciones: ${String(PA.diasVacMes).replace(".", ",")} días al mes = ${String(Math.round(PA.diasVacMes * 12 * 100) / 100).replace(".", ",")} al año.`));
+  c.append(flCtrl("Días de vacaciones al año (de alta desde el 1 de enero)", n("diasVacAnio","0.5")), flCtrl("Días al mes (altas durante el año)", n("diasVacMes","0.01")), flCtrl("Horas anuales de convenio", n("horasConvenio","1")));
+  c.append(el("span","hint",`Vacaciones generadas: de alta desde el inicio del año, ${num1(Math.round(PA.diasVacAnio / 12 * 100) / 100)} días al mes (${num1(PA.diasVacAnio)} / 12, el ajuste cierra a cero en diciembre si se disfrutan todos); altas durante el año, ${num1(PA.diasVacMes)} días al mes. Proporcional a los días de alta del mes. Coste hora = coste anual estimado / ${eur(PA.horasConvenio)} h.`));
   box.append(c);
 }
 function tabCostePuesto(box){
