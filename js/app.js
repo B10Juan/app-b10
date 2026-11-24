@@ -11,7 +11,7 @@ import { renderPlanificador } from "./modulos/planificador.js";
 import { renderRrhh, renderDatos } from "./modulos/rrhh.js";
 import { renderOrganigrama } from "./modulos/organigrama.js";
 import { renderVacaciones } from "./modulos/vacaciones.js";
-import { logo, conImagen, icono } from "./marca.js";
+import { logo, conImagen, icono, MARCA } from "./marca.js";
 
 export const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -60,7 +60,7 @@ export function render(){ if (rq) return; rq = true; requestAnimationFrame(() =>
 function draw(){
   // El plan va en un iframe: si ya está abierto no se vuelve a pintar (se recargaría)
   if (ctx.ready && ctx.session && ctx.me && route() === "plan" && planFrame && planFrame.isConnected && !((ctx.session.user.user_metadata || {}).debe_cambiar_password)) return;
-  let app = $("#app"); app.classList.remove("con-lateral");
+  let app = $("#app"); app.classList.remove("con-lateral","menu-plegado","menu-movil");
   const sx = window.scrollX, sy = window.scrollY;
   const gw0 = document.querySelector(".gridwrap"), gx = gw0 ? gw0.scrollLeft : 0, gy = gw0 ? gw0.scrollTop : 0;
   const ae = document.activeElement, aeKey = ae && ae.dataset ? ae.dataset.k : null;
@@ -73,9 +73,14 @@ function draw(){
   if (md.debe_cambiar_password) return drawPassword(app, true);
   if (r === "contrasena") return drawPassword(app, false);
   const esPlan = r === "planificador" || r === "proveedores" || r === "stock" || /^prov-\d+(-pedidos)?$/.test(r);
-  const esApp = ["compras","compras-ref","proveedores","pagos","usuarios","plan","demanda","stock","tesoreria-proveedores","tesoreria-clientes","personas-costes","datos","organigrama","vacaciones"].includes(r) || /^prov-\d+/.test(r);
-  app.classList.toggle("con-lateral", esApp);
-  if (esApp){ app.append(lateral(r)); const m = el("main","contenido"); app.append(m); app = m; }
+  // Menú lateral en todas las pantallas; las antiguas carpetas (#tesoreria, #personas…) abren la portada con su grupo desplegado
+  const carpeta = INICIO.find(x => x.tipo === "carpeta" && x.id === r);
+  if (carpeta){ menuAbrir(carpeta.id); history.replaceState(null, "", location.pathname + location.search); }
+  const nsc = document.querySelector(".lat-nav"); const navTop = nsc ? nsc.scrollTop : 0;
+  app.classList.add("con-lateral"); app.classList.toggle("menu-plegado", menuPlegado()); app.classList.remove("menu-movil");
+  app.append(lateral(carpeta ? "inicio" : r), barraMovil()); const fondo = el("div","lat-fondo"); fondo.addEventListener("click", () => $("#app").classList.remove("menu-movil")); app.append(fondo);
+  const m = el("main","contenido"); app.append(m); app = m;
+  const nn = document.querySelector(".lat-nav"); if (nn) nn.scrollTop = navTop;
   if (r === "compras" && nivel("compras")) renderCompras(app);
   else if (r === "compras-ref" && nivel("compras")) renderComprasRef(app);
   else if (esPlan && (nivel("planificador") || (r === "planificador" && nivel("pagos")))) renderPlanificador(app, r);
@@ -89,7 +94,6 @@ function draw(){
   else if (r === "organigrama" && nivel("organigrama")) renderOrganigrama(app);
   else if (r === "vacaciones" && nivel("vacaciones")) renderVacaciones(app);
   else if (r === "datos" && (nivel("datos") || nivel("rrhh"))) renderDatos(app);
-  else if (INICIO.some(x => x.tipo === "carpeta" && x.id === r)) drawCarpeta(app, r);
   else drawInicio(app);
   if (aeKey){ const n = document.querySelector(`[data-k="${CSS.escape(aeKey)}"]`); if (n) n.focus(); }
   window.scrollTo(sx, sy);
@@ -98,7 +102,8 @@ function draw(){
 
 export function cabecera(app, titulo, sub, volver, modulo){
   const h = el("header","top pad"), b = el("div","brand");
-  if (volver){ const v = typeof volver === "object" ? volver : { txt:"APP B10", href:"#" }; const bk = el("a","back","‹ " + v.txt); bk.href = v.href; b.append(bk); }
+  // Miga de pan: el área del módulo (la navegación está en el menú lateral)
+  if (volver){ const v = typeof volver === "object" ? volver : { txt:"Administración" }; b.append(el("span","miga", v.txt)); }
   const h1 = el("h1",null,titulo); b.append(h1); if (sub) b.append(el("p",null,sub));
   if (modulo && nivel(modulo) === "ver"){ const t = el("span","tag neutral","Solo visualización: puedes consultar y filtrar, pero no modificar datos"); t.style.display = "inline-block"; t.style.marginTop = "6px"; b.append(t); }
   const w = el("div","who"); w.append(el("span",null,(ctx.me.nombre || ctx.session.user.email) + (isAdmin() ? " (administrador)" : "")));
@@ -107,77 +112,135 @@ export function cabecera(app, titulo, sub, volver, modulo){
   w.append(pwb, out); h.append(b, w); app.append(h);
 }
 
-function cabeceraNav(app, lema){
-  const h = el("header","top pad hero"), b = el("div","brand marca"); const lg = el("a"); lg.href = "#"; lg.append(logo("logo-hero")); b.append(lg, el("span","lema",lema));
-  const w = el("div","who"); w.append(el("span",null,(ctx.me.nombre || ctx.session.user.email) + (isAdmin() ? " (administrador)" : "")));
-  const pwb = el("a","btn small","Contraseña"); pwb.href = "#contrasena"; const out = el("button","btn small","Salir"); out.addEventListener("click", async () => { await sb.auth.signOut(); }); w.append(pwb, out);
-  h.append(b, w); app.append(h);
-}
-function tarjetaModulo(m){
-  const a = el("a","mod-card"+(m.clase?" "+m.clase:"")+(m.listo?"":" soon")); if (m.listo) a.href = "#"+m.ruta;
-  a.append(el("h2",null,m.titulo), el("p",null,m.texto));
-  const t = el("div","stats"); t.append(el("span","tag "+(m.listo?"neutral":"pend"), m.listo ? ((nivel(m.codigo)||nivel(m.tambien||""))==="editar"?"Edición":"Visualización") : "Próximamente")); a.append(t);
-  return conImagen(a, m.codigo);
-}
-function drawInicio(app){
-  document.title = "APP B10: Gestión";
-  cabeceraNav(app, "gestión");
-  const g = el("div","modules pad"); let n = 0;
-  for (const it of INICIO){
-    if (it.tipo === "modulo"){ const m = MODULOS.find(x => x.codigo === it.codigo); if (m && visible(m)){ g.append(tarjetaModulo(m)); n++; } }
-    else if (it.tipo === "usuarios"){ if (isAdmin()){ const a = el("a","mod-card usr"); a.href = "#usuarios"; a.append(el("h2",null,"Gestión de usuarios"), el("p",null,"Permisos de consulta o edición de cada persona en cada módulo.")); g.append(conImagen(a, "usuarios")); n++; } }
-    else {
-      const hijos = it.hijos.map(c => MODULOS.find(x => x.codigo === c)).filter(m => m && visible(m)); if (!hijos.length) continue;
-      const listos = hijos.filter(m => m.listo);
-      const a = el("a","mod-card carpeta"+(listos.length?"":" soon")); a.href = "#"+it.id;
-      a.append(el("h2",null,it.titulo), el("p",null,it.texto));
-      const t = el("div","stats"); for (const m of hijos) t.append(el("span","tag "+(m.listo?"neutral":"pend"), m.titulo + (m.listo ? "" : " (próximamente)"))); a.append(t);
-      g.append(conImagen(a, it.id)); n++;
-    }
-  }
-  if (!n) g.append(el("div","card empty","Todavía no tienes acceso a ningún módulo. Pide a un administrador que te dé permisos."));
-  app.append(g);
-  app.append(el("p","hint pad",`Versión ${APP_VERSION}`));
-}
-// Pantalla de una carpeta: sus módulos
-function drawCarpeta(app, id){
-  const it = INICIO.find(x => x.id === id); document.title = it.titulo + ": APP B10";
-  cabeceraNav(app, it.titulo.toLowerCase());
-  const sub = el("div","pad"); const bk = el("a","back","‹ APP B10"); bk.href = "#"; sub.append(bk, el("p","secsub",it.texto)); app.append(sub);
-  const g = el("div","modules pad"); let n = 0;
-  for (const c of it.hijos){ const m = MODULOS.find(x => x.codigo === c); if (m && visible(m)){ g.append(tarjetaModulo(m)); n++; } }
-  if (!n) g.append(el("div","card empty","No tienes acceso a ningún módulo de esta carpeta."));
-  app.append(g);
+// ---------- Menú lateral: estructura de áreas y módulos, plegable ----------
+// Para añadir un módulo nuevo: añadirlo a MODULOS / INICIO (permisos) y aquí como entrada de su grupo.
+const LS_PLEGADO = "b10.menu.plegado", LS_ABIERTOS = "b10.menu.abiertos";
+const lsGet = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* sin almacenamiento: el menú funciona igual */ } };
+const menuPlegado = () => !!lsGet(LS_PLEGADO, false);
+const abiertos = () => new Set(lsGet(LS_ABIERTOS, []));
+function menuAbrir(id){ const s = abiertos(); s.add(id); lsSet(LS_ABIERTOS, [...s]); }
+function plegarMenu(v){ lsSet(LS_PLEGADO, v); const a = $("#app"); if (a) a.classList.toggle("menu-plegado", v); }
+
+const tituloArea = id => (INICIO.find(x => x.id === id) || {}).titulo || id;
+function estructuraMenu(r){
+  const m = (txt, href, ok, on, extra) => ({ txt, href, ok:!!ok, on:!!on, ...(extra || {}) });
+  return [
+    { id:"inicio", ic:"inicio", ...m("Inicio", "#", true, r === "inicio") },
+    { id:"plan", ic:"plan", ...m("Plan Estratégico", "#plan", nivel("plan_accion"), r === "plan") },
+    { grupo:"operaciones", ic:"operaciones", txt:tituloArea("operaciones"), items:[
+      m("Compras", "#compras", nivel("compras"), r.startsWith("compras")),
+      m("Planificador de compras", "#proveedores", nivel("planificador"), r === "proveedores" || r === "planificador" || /^prov-/.test(r)),
+      m("Evolución del stock", "#stock", nivel("planificador"), r === "stock"),
+      m("Previsión de pagos import.", "#pagos", nivel("pagos"), r === "pagos"),
+    ]},
+    { grupo:"tesoreria", ic:"tesoreria", txt:tituloArea("tesoreria"), items:[
+      m("Pagos a proveedores", "#tesoreria-proveedores", nivel("tesoreria_prov"), r === "tesoreria-proveedores"),
+      m("Cobros de clientes", "#tesoreria-clientes", nivel("tesoreria_cli"), r === "tesoreria-clientes"),
+    ]},
+    { grupo:"personas", ic:"personas", txt:tituloArea("personas"), items:[
+      m("Costes de personal", "#personas-costes", nivel("rrhh"), r === "personas-costes"),
+      m("Vacaciones", "#vacaciones", nivel("vacaciones"), r === "vacaciones"),
+      m("Organigrama", "#organigrama", nivel("organigrama"), r === "organigrama"),
+      m("Introducción de datos", "#datos", nivel("datos") || nivel("rrhh"), r === "datos"),
+    ]},
+    { grupo:"comercial", ic:"comercial", txt:tituloArea("comercial"), items:[
+      m("Análisis de la demanda", "#demanda", nivel("demanda"), r === "demanda"),
+      m("CRM de clientes", null, isAdmin(), false, { pronto:true }),
+    ]},
+    { grupo:"admin", ic:"ajustes", txt:"Administración", items:[
+      m("Usuarios y permisos", "#usuarios", isAdmin(), r === "usuarios"),
+    ]},
+  ];
 }
 
-// Banda lateral de las aplicaciones: logo, accesos a los módulos y sesión
 function lateral(r){
-  const a = el("aside","lateral"); a.setAttribute("aria-label","Navegación de la APP");
-  const lk = el("a","lat-logo"); lk.href = "#"; lk.title = "APP B10: inicio"; lk.append(logo("logo-lat")); a.append(lk);
-  const nav = el("nav","lat-nav");
-  const item = (href, ic, txt, act) => { const x = el("a","lat-item"+(act?" on":"")); x.href = href; x.title = txt; if (act) x.setAttribute("aria-current","page"); x.append(icono(ic), el("span",null,txt)); nav.append(x); };
-  item("#", "inicio", "Inicio", false);
-  if (nivel("compras")) item("#compras", "compras", "Compras", r.startsWith("compras"));
-  if (nivel("planificador")) item("#proveedores", "planificador", "Planificador", r === "proveedores" || /^prov-/.test(r));
-  if (nivel("planificador")) item("#stock", "stock", "Stock", r === "stock");
-  if (nivel("pagos")) item("#pagos", "pagos", "Pagos", r === "pagos");
-  if (nivel("plan_accion")) item("#plan", "plan", "Plan P.E.", r === "plan");
-  if (nivel("demanda")) item("#demanda", "demanda", "Demanda", r === "demanda");
-  if (nivel("tesoreria_prov")) item("#tesoreria-proveedores", "tesoreria", "Pagos prov.", r === "tesoreria-proveedores");
-  if (nivel("tesoreria_cli")) item("#tesoreria-clientes", "cobros", "Cobros", r === "tesoreria-clientes");
-  if (nivel("rrhh")) item("#personas-costes", "personas", "Costes RRHH", r === "personas-costes");
-  if (nivel("vacaciones")) item("#vacaciones", "vacaciones", "Vacaciones", r === "vacaciones");
-  if (nivel("organigrama")) item("#organigrama", "organigrama", "Organigrama", r === "organigrama");
-  if (nivel("datos") || nivel("rrhh")) item("#datos", "datos", "Datos", r === "datos");
-  if (isAdmin()) item("#usuarios", "usuarios", "Usuarios", r === "usuarios");
-  a.append(nav);
+  const a = el("aside","lateral"); a.setAttribute("aria-label","Menú de la APP B10");
+  // Cabecera: logo + lema y botón de plegar
+  const top = el("div","lat-top");
+  const lk = el("a","lat-logo"); lk.href = "#"; lk.title = "APP B10: inicio"; lk.append(logo("logo-lat"), el("span","lat-lema","gestión"));
+  const pl = el("button","lat-plegar"); pl.type = "button";
+  const setPl = () => { const p = menuPlegado(); pl.title = p ? "Mostrar el menú" : "Ocultar el menú"; pl.setAttribute("aria-label", pl.title); pl.setAttribute("aria-expanded", String(!p)); };
+  pl.append(icono("panel")); setPl();
+  pl.addEventListener("click", () => { if (window.matchMedia("(max-width:720px)").matches){ $("#app").classList.remove("menu-movil"); return; } plegarMenu(!menuPlegado()); setPl(); });
+  top.append(lk, pl); a.append(top);
+
+  const nav = el("nav","lat-nav"), ul = el("ul","lat-lista"); const ab = abiertos();
+  for (const it of estructuraMenu(r)){
+    if (!it.grupo){
+      if (!it.ok) continue;
+      const li = el("li"), x = el("a","lat-item" + (it.on ? " on" : "")); x.href = it.href; x.title = it.txt;
+      if (it.on) x.setAttribute("aria-current","page");
+      x.append(icono(it.ic), el("span","lat-txt",it.txt)); li.append(x); ul.append(li); continue;
+    }
+    const hijos = it.items.filter(h => h.ok); if (!hijos.length) continue;
+    const activo = hijos.some(h => h.on), abierto = activo || ab.has(it.grupo);
+    const li = el("li","lat-grupo" + (abierto ? " abierto" : "") + (activo ? " activo" : ""));
+    const b = el("button","lat-item lat-cab"); b.type = "button"; b.title = it.txt; b.setAttribute("aria-expanded", String(abierto));
+    const sid = "lat-g-" + it.grupo; b.setAttribute("aria-controls", sid);
+    b.append(icono(it.ic), el("span","lat-txt",it.txt), icono("flecha"));
+    b.addEventListener("click", () => {
+      // Con el menú plegado, pulsar un área lo despliega con esa área abierta
+      if ($("#app").classList.contains("menu-plegado")){ plegarMenu(false); setPl(); li.classList.add("abierto"); b.setAttribute("aria-expanded","true"); menuAbrir(it.grupo); return; }
+      const ab2 = abiertos(), abre = !li.classList.contains("abierto");
+      li.classList.toggle("abierto", abre); b.setAttribute("aria-expanded", String(abre));
+      if (abre) ab2.add(it.grupo); else ab2.delete(it.grupo); lsSet(LS_ABIERTOS, [...ab2]);
+    });
+    const sub = el("ul","lat-sub"); sub.id = sid;
+    for (const h of hijos){
+      const sl = el("li");
+      if (h.pronto){ const s = el("span","lat-subitem pronto", h.txt); s.append(el("small",null,"próximamente")); sl.append(s); }
+      else { const x = el("a","lat-subitem" + (h.on ? " on" : ""), h.txt); x.href = h.href; if (h.on) x.setAttribute("aria-current","page"); sl.append(x); }
+      sub.append(sl);
+    }
+    li.append(b, sub); ul.append(li);
+  }
+  nav.append(ul); a.append(nav);
+
+  // Pie: usuario, contraseña y salir
   const pie = el("div","lat-pie");
-  const ini = (ctx.me.nombre || ctx.session.user.email).split(/[\s@.]+/).filter(Boolean).slice(0,2).map(x => x[0].toUpperCase()).join("");
-  const av = el("span","lat-av",ini); av.title = ctx.me.nombre || ctx.session.user.email; pie.append(av);
-  const pw = el("a","lat-item"); pw.href = "#contrasena"; pw.title = "Cambiar contraseña"; pw.append(icono("clave"), el("span",null,"Clave"));
-  const out = el("button","lat-item"); out.type = "button"; out.title = "Salir"; out.append(icono("salir"), el("span",null,"Salir")); out.addEventListener("click", async () => { await sb.auth.signOut(); });
-  pie.append(pw, out); a.append(pie);
+  const nombre = ctx.me.nombre || ctx.session.user.email;
+  const ini = nombre.split(/[\s@.]+/).filter(Boolean).slice(0,2).map(x => x[0].toUpperCase()).join("");
+  const us = el("div","lat-user"); us.title = nombre;
+  const txt = el("div","lat-txt"); txt.append(el("strong",null,nombre), el("small",null, isAdmin() ? "Administrador" : ctx.session.user.email));
+  us.append(el("span","lat-av",ini), txt); pie.append(us);
+  const acc = el("div","lat-acc");
+  const pw = el("a","lat-item lat-mini"); pw.href = "#contrasena"; pw.title = "Cambiar contraseña"; pw.append(icono("clave"), el("span","lat-txt","Contraseña"));
+  const out = el("button","lat-item lat-mini"); out.type = "button"; out.title = "Salir"; out.append(icono("salir"), el("span","lat-txt","Salir"));
+  out.addEventListener("click", async () => { await sb.auth.signOut(); });
+  acc.append(pw, out); pie.append(acc, el("span","lat-ver","v" + APP_VERSION)); a.append(pie);
   return a;
+}
+
+// Móvil: barra superior con el botón del menú
+function barraMovil(){
+  const h = el("header","barra-movil");
+  const b = el("button","btn-menu"); b.type = "button"; b.setAttribute("aria-label","Abrir el menú"); b.append(icono("menu"));
+  b.addEventListener("click", () => $("#app").classList.add("menu-movil"));
+  const lk = el("a"); lk.href = "#"; lk.append(logo("logo-movil"));
+  h.append(b, lk); return h;
+}
+
+// Portada: imagen de la web b10bath.com (vídeo de la colección, con foto fija de respaldo)
+function drawInicio(app){
+  document.title = "APP B10: Gestión";
+  const s = el("section","portada");
+  const quieto = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (MARCA.portadaVideo && !quieto){
+    const v = document.createElement("video"); v.className = "portada-media"; v.muted = true; v.loop = true; v.autoplay = true; v.playsInline = true;
+    v.setAttribute("muted",""); v.setAttribute("playsinline",""); v.setAttribute("aria-hidden","true"); v.poster = MARCA.portada; v.preload = "auto";
+    v.src = MARCA.portadaVideo; v.onerror = () => { const i = new Image(); i.className = "portada-media"; i.alt = ""; i.onerror = () => i.remove(); i.src = MARCA.portada; v.replaceWith(i); };
+    s.append(v);
+  } else { const i = new Image(); i.className = "portada-media"; i.alt = ""; i.onerror = () => i.remove(); i.src = MARCA.portada; s.append(i); }
+  s.append(el("div","portada-velo"));
+  const t = el("div","portada-txt");
+  const lema = new Image(); lema.className = "portada-lema"; lema.alt = "be bath, b10"; lema.src = MARCA.lema; lema.onerror = () => lema.replaceWith(el("span","portada-lema txt","be bath, b10"));
+  const h = new Date().getHours(), saludo = h < 14 ? "Buenos días" : h < 21 ? "Buenas tardes" : "Buenas noches";
+  const nombre = (ctx.me.nombre || "").trim().split(/\s+/)[0];
+  let hoy = new Date().toLocaleDateString("es-ES", { weekday:"long", day:"numeric", month:"long", year:"numeric" }); hoy = hoy[0].toUpperCase() + hoy.slice(1);
+  t.append(lema, el("h1",null, saludo + (nombre ? ", " + nombre : "")), el("p",null,"Gestión interna de B10. Elige un módulo en el menú lateral."), el("p","portada-fecha", hoy));
+  if (!MODULOS.some(visible) && !isAdmin()) t.append(el("p","portada-aviso","Todavía no tienes acceso a ningún módulo. Pide a un administrador que te dé permisos."));
+  s.append(t); app.append(s);
 }
 
 // Plan de Acción del P.E.: la app de seguimiento va incrustada y comparte la sesión de APP B10
@@ -267,7 +330,7 @@ async function cargarPerfil(){
 
 document.addEventListener("click", () => { if (ctx.ui.dd){ ctx.ui.dd = null; render(); } });
 document.addEventListener("keydown", e => { if (e.key === "Escape" && ctx.ui.dd){ ctx.ui.dd = null; render(); } });
-window.addEventListener("hashchange", () => { window.scrollTo(0,0); render(); });
+window.addEventListener("hashchange", () => { window.scrollTo(0,0); const a = $("#app"); if (a) a.classList.remove("menu-movil"); render(); });
 
 // Las llamadas a Supabase se hacen fuera del aviso de sesión para no bloquearlo
 sb.auth.onAuthStateChange((_ev, session) => {
