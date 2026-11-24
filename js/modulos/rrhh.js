@@ -298,13 +298,22 @@ function tabSeccion(box){
 
 // ---------- Por empleado ----------
 const MEDIDAS_EMP = { coste:"Coste empresa", bruto:"Bruto", liquido:"Líquido" };
+// ajustes de vacaciones y bolsa de horas (los mismos de «Imputación por puesto»), solo en coste de empresa
+let AJE = null;
+const ajusteEmp = (cod, m) => { if (!AJE || R.fe.medida !== "coste") return 0; const p = R.data.porCodigo.get(cod), d = p && AJE.get(`${p.id}|${m}`); return d ? (R.fe.ajVac ? d.c.ajVac : 0) + (R.fe.ajBolsa ? d.c.ajBolsa : 0) : 0; };
+const valEmpM = (cod, m, n) => valEmp(n) + ajusteEmp(cod, m);
 const valEmp = n => R.fe.medida === "bruto" ? n.bruto - n.indemnizacion + indemn(n) + n.prorrata_extra : R.fe.medida === "liquido" ? n.liquido + n.paga_extra_liquido : costeDev(n);
 function tabEmpleado(box){
   ctrlIndem(box);
   { const c = box.lastChild, s = el("div","seg"); R.fe.medida = R.fe.medida || "coste";
     for (const [k,l] of Object.entries(MEDIDAS_EMP)){ const b = el("button",null,l); b.type = "button"; b.setAttribute("aria-pressed", String(R.fe.medida === k)); b.addEventListener("click", () => { R.fe.medida = k; render(); }); s.append(b); }
-    const d = el("div","fld"); d.append(el("span",null,"Ver"), s); c.insertBefore(d, c.firstChild); }
+    const d = el("div","fld"); d.append(el("span",null,"Ver"), s); c.insertBefore(d, c.firstChild);
+    const h = c.querySelector(".hint"); if (h) h.remove();
+    if (R.fe.medida === "coste") for (const [key, lab] of [["ajVac","Ajuste vacaciones"],["ajBolsa","Ajuste bolsa de horas"]]){
+      const s2 = el("div","seg"); for (const [k,l] of [[true,"Incluir"],[false,"No incluir"]]){ const b = el("button",null,l); b.type = "button"; b.setAttribute("aria-pressed", String(!!R.fe[key] === k)); b.addEventListener("click", () => { R.fe[key] = k; render(); }); s2.append(b); }
+      const d2 = el("div","fld"); d2.title = "Solo M.O.D: el mismo ajuste que en «Imputación por puesto»"; d2.append(el("span",null,lab), s2); c.append(d2); } }
   const M = meses(), D = R.data;
+  AJE = R.fe.medida === "coste" && (R.fe.ajVac || R.fe.ajBolsa) && M.length ? costesPuesto(M).det : null;
   const c = el("div","ctrl");
   const qd = el("div","fld"); const q = el("input"); q.type = "search"; q.placeholder = "Nombre o código"; q.value = R.fe.q; q.dataset.k = "rr-eq"; q.addEventListener("input", () => { R.fe.q = q.value; render(); }); qd.append(el("span",null,"Buscar"), q); c.append(qd);
   const dd = el("div","fld"); const s = el("select"); s.append(new Option("Todos","")); for (const g of [...new Set(D.personas.map(p => p.departamento || "Sin asignar"))].sort()) s.append(new Option(g, g)); s.value = R.fe.dep; s.addEventListener("change", () => { R.fe.dep = s.value; render(); }); dd.append(el("span",null,"Departamento"), s); c.append(dd);
@@ -313,18 +322,18 @@ function tabEmpleado(box){
   const qq = R.fe.q.trim().toLowerCase();
   const L = [...by.entries()].map(([cod, x]) => ({ cod, x, p: D.porCodigo.get(cod) || { codigo:cod, nombre:"(sin ficha)" } }))
     .filter(r => (!qq || `${r.p.nombre} ${r.cod}`.toLowerCase().includes(qq)) && (!R.fe.dep || (r.p.departamento || "Sin asignar") === R.fe.dep))
-    .map(r => ({ ...r, tot: sum(M, m => r.x[m] ? valEmp(r.x[m]) : 0), ord: sum(M, m => r.x[m] ? valEmp(r.x[m]) : 0), nm: M.filter(m => r.x[m] && (r.x[m].bruto || r.x[m].coste_total)).length }))
+    .map(r => ({ ...r, tot: sum(M, m => r.x[m] ? valEmpM(r.cod, m, r.x[m]) : 0), ord: sum(M, m => r.x[m] ? valEmpM(r.cod, m, r.x[m]) : 0), nm: M.filter(m => r.x[m] && (r.x[m].bruto || r.x[m].coste_total)).length }))
     .sort((a,b) => b.tot - a.tot);
   const tw = el("div","tblwrap"); const t = el("table","tbl"); const hr = el("tr");
   for (const h of ["Código","Nombre","Departamento"]) hr.append(el("th",null,h)); for (const m of M) hr.append(el("th","n",mesLab(m))); for (const h of ["Total","Media mes","Meses"]) hr.append(el("th","n",h)); t.append(el("thead")); t.tHead.append(hr);
   const tb = el("tbody");
   for (const r of L){ const tr = el("tr"); const abre = td => { td.style.cursor = "pointer"; td.title = "Abrir la ficha"; td.addEventListener("click", () => { if (R.data.porCodigo.get(r.cod)) ficha(R.data.porCodigo.get(r.cod)); }); return td; };
     tr.append(abre(el("td",null,r.cod)), abre(el("td",null,r.p.nombre)), abre(el("td",null,r.p.departamento || "—")));
-    for (const m of M){ const n = r.x[m]; const td = el("td","n", n ? eur(valEmp(n)) : ""); if (n){ td.style.cursor = "pointer"; td.title = "Ver el desglose de la nómina" + (R.indem && n.indemnizacion ? ` (incluye indemnización ${eur(n.indemnizacion)} €)` : ""); td.addEventListener("click", () => desglose(r.cod, m)); if (R.indem && n.indemnizacion) td.style.fontWeight = "700"; } tr.append(td); }
+    for (const m of M){ const n = r.x[m], aj = n ? ajusteEmp(r.cod, m) : 0; const td = el("td","n", n ? eur(valEmp(n) + aj) : ""); if (n){ td.style.cursor = "pointer"; td.title = "Ver el desglose de la nómina" + (R.indem && n.indemnizacion ? ` (incluye indemnización ${eur(n.indemnizacion)} €)` : "") + (aj ? ` · nómina ${eur(valEmp(n))} € ${aj < 0 ? "−" : "+"} ajustes ${eur(Math.abs(aj))} €` : ""); td.addEventListener("click", () => desglose(r.cod, m)); if (R.indem && n.indemnizacion) td.style.fontWeight = "700"; } tr.append(td); }
     tr.append(el("td","n",eur(r.tot)), el("td","n",eur(r.nm ? r.ord / r.nm : 0)), el("td","n",String(r.nm))); tb.append(tr); }
-  const tr = el("tr","wk"); tr.append(el("td"), el("td",null,`Total (${L.length} personas)`), el("td")); for (const m of M) tr.append(el("td","n",eur(sum(L, r => r.x[m] ? valEmp(r.x[m]) : 0)))); tr.append(el("td","n",eur(sum(L, r => r.tot))), el("td"), el("td")); tb.append(tr);
+  const tr = el("tr","wk"); tr.append(el("td"), el("td",null,`Total (${L.length} personas)`), el("td")); for (const m of M) tr.append(el("td","n",eur(sum(L, r => r.x[m] ? valEmpM(r.cod, m, r.x[m]) : 0)))); tr.append(el("td","n",eur(sum(L, r => r.tot))), el("td"), el("td")); tb.append(tr);
   t.append(tb); tw.append(t); box.append(tw);
-  box.append(el("p","hint",(R.fe.medida === "liquido" ? "Líquido cobrado cada mes (en junio incluye la paga extra; no se le quitan las indemnizaciones)." : (R.fe.medida === "bruto" ? "Bruto" : "Coste de empresa") + " de cada mes con la paga extra de verano prorrateada" + (R.indem ? "; en negrita, los meses con indemnización." : ", sin indemnizaciones.")) + " Pulsa un importe para ver el desglose de esa nómina hasta el líquido, o el nombre para abrir la ficha."));
+  box.append(el("p","hint",(R.fe.medida === "liquido" ? "Líquido cobrado cada mes (en junio incluye la paga extra; no se le quitan las indemnizaciones)." : (R.fe.medida === "bruto" ? "Bruto" : "Coste de empresa") + " de cada mes con la paga extra de verano prorrateada" + (R.indem ? "; en negrita, los meses con indemnización." : ", sin indemnizaciones.") + (R.fe.medida === "coste" && (R.fe.ajVac || R.fe.ajBolsa) ? ` Incluye ${[R.fe.ajVac && "el ajuste de vacaciones", R.fe.ajBolsa && "el ajuste de bolsa de horas"].filter(Boolean).join(" y ")} (solo M.O.D), igual que en «Imputación por puesto»; la ETT no aparece aquí.` : "")) + " Pulsa un importe para ver el desglose de esa nómina hasta el líquido, o el nombre para abrir la ficha."));
 }
 
 // ---------- Ficha de personas ----------
