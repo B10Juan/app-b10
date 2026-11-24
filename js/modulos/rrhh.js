@@ -137,7 +137,7 @@ export function renderDatos(app){
   const inc = R.data.personas.filter(p => activa(p) && pendientes(p).length).length;
   nav.style.alignItems = "flex-end";
   if (!["plantilla","evolucion","trabajador","personas","estructura"].includes(R.tabD)) R.tabD = "plantilla";
-  for (const [k,t] of [["plantilla","Introducción de datos"],["evolucion","Evolución de la plantilla|por departamento"],["trabajador","Evolución de la plantilla|por trabajador"],["personas", "Maestro de Personas" + (inc ? ` (${inc} incompletas)` : "")],["estructura","Maestro de Puestos de trabajo"]]){
+  for (const [k,t] of [["plantilla","Introducción de datos"],["evolucion","Evolución de la plantilla|por departamento"],["trabajador","Evolución de la plantilla M.O.D|por trabajador"],["personas", "Maestro de Personas" + (inc ? ` (${inc} incompletas)` : "")],["estructura","Maestro de Puestos de trabajo"]]){
     const a = el("a"); t.split("|").forEach((x, i) => { if (i) a.append(el("br")); a.append(x); }); a.style.lineHeight = "1.25"; a.style.whiteSpace = "nowrap"; a.href = "#datos"; if (R.tabD === k) a.setAttribute("aria-current","page"); a.addEventListener("click", e => { e.preventDefault(); R.tabD = k; R.hlPuesto = null; render(); }); nav.append(a); }
   const acc = el("span"); acc.style.cssText = "margin-left:auto;display:flex;gap:8px;white-space:nowrap;align-self:center";
   const exv = el("button","btn small","Exportar vista a Excel"); exv.addEventListener("click", () => exportarVista(box, { estructura:"Maestro puestos", plantilla:"Introduccion datos " + ((R.fp && R.fp.dia) || hoyKey), evolucion:"Evolucion plantilla departamento", trabajador:"Evolucion plantilla trabajador" }[R.tabD] || "Maestro personas")); acc.append(exv);
@@ -1104,7 +1104,7 @@ function periodosMS(escala, desde, hasta){
   return per;
 }
 // filtros de sección, departamento y puesto sobre una lista de claves de puesto (cada uno ofrece solo lo que cabe en el anterior)
-function filtrosPuesto(c, F, pks, fl){
+function filtrosPuesto(c, F, pks, fl, sinSec){
   const ORDS = ["M.O.E","M.O.I","M.O.D"], sec = pk => ORDS.includes(pk.clas) ? pk.clas : "-";
   const enSec = pk => !F.fs || sec(pk) === F.fs, enDep = pk => !F.fd || (pk.dep || "-") === F.fd, enPu = pk => !F.fpu || (pk.pue || "-") === F.fpu;
   const selF = (key, todos, vals, lab, onCh) => { const s = el("select"); s.append(new Option(todos, "")); for (const [v, t] of vals) s.append(new Option(t, v)); s.value = F[key] || ""; if (s.value !== (F[key] || "")) { F[key] = ""; s.value = ""; }
@@ -1113,7 +1113,8 @@ function filtrosPuesto(c, F, pks, fl){
   const secs = [...new Set(pks.map(sec))].map(v => [v, v === "-" ? "Sin sección" : v]).sort((a, b) => a[0] === "-" ? 1 : b[0] === "-" ? -1 : ORDS.indexOf(a[0]) - ORDS.indexOf(b[0]));
   const deps = [...new Set(pks.filter(enSec).map(pk => pk.dep || "-"))].map(v => [v, v === "-" ? "Sin departamento" : v]).sort(orden);
   const pues = [...new Set(pks.filter(pk => enSec(pk) && enDep(pk)).map(pk => pk.pue || "-"))].map(v => [v, v === "-" ? "Sin puesto" : v]).sort(orden);
-  c.append(selF("fs","Todas", secs, "Sección", () => { F.fd = ""; F.fpu = ""; }), selF("fd","Todos", deps, "Departamento", () => { F.fpu = ""; }), selF("fpu","Todos", pues, "Puesto"));
+  if (!sinSec) c.append(selF("fs","Todas", secs, "Sección", () => { F.fd = ""; F.fpu = ""; }));
+  c.append(selF("fd","Todos", deps, "Departamento", () => { F.fpu = ""; }), selF("fpu","Todos", pues, "Puesto"));
   if (F.fs || F.fd || F.fpu){ const q = el("button","btn small","Quitar filtros"); q.type = "button"; q.style.alignSelf = "flex-end"; q.addEventListener("click", () => { F.fs = F.fd = F.fpu = ""; render(); }); c.append(q); }
   return pk => enSec(pk) && enDep(pk) && enPu(pk);
 }
@@ -1433,14 +1434,15 @@ function tabTrabajador(box){
     P = diasDe(a, b).map(k => ({ lab:`${DS[new Date(k + "T00:00:00Z").getUTCDay()]} ${k.slice(8,10)}/${k.slice(5,7)}`, ini:k, fin:k, dias:[k] }));
     if (P.length > 93){ box.append(c, el("div","card empty","Como mucho 93 días en la escala de días: acorta el rango o usa semanas o meses.")); return; } }
   else { P = periodosMS(F.escala, F.desde, F.hasta).filter(x => !x.futuro); if (P.length > 160){ box.append(c, el("div","card empty","Demasiados periodos: acorta el rango de fechas.")); return; } }
-  const base = D.personas.filter(p => (!F.vinculo || p.tipo_vinculo === F.vinculo) && coincideTrab(F, p));
-  const okPk = filtrosPuesto(c, F, base.map(pkPrincipal), flCtrl); box.append(c);
+  // esta pestaña trabaja solo con la M.O.D
+  F.fs = "";
+  const base = D.personas.filter(p => (pkPrincipal(p).clas || p.clasificacion) === "M.O.D" && (!F.vinculo || p.tipo_vinculo === F.vinculo) && coincideTrab(F, p));
+  const okPk = filtrosPuesto(c, F, base.map(pkPrincipal), flCtrl, true); box.append(c);
   // cálculo por persona y día
   const filas = [];
   for (const p of base){ if (!okPk(pkPrincipal(p))) continue; const R2 = P.map(x => x.dias.map(d => diaPersona(p, d)));
     if (!R2.some(dd => dd.some(r => r.st.e !== "fuera"))) continue; filas.push({ p, pk:pkPrincipal(p), R2 }); }
-  const ords = ["M.O.E","M.O.I","M.O.D"]; const ordC = k => ords.includes(k) ? ords.indexOf(k) : 9;
-  filas.sort((a, b) => ordC(a.pk.clas) - ordC(b.pk.clas) || (a.pk.dep || "~").localeCompare(b.pk.dep || "~", "es") || a.p.nombre.localeCompare(b.p.nombre, "es"));
+  filas.sort((a, b) => a.p.nombre.localeCompare(b.p.nombre, "es"));
   // leyenda
   const ley = el("div","vac-ley"); ley.style.margin = "0 0 8px";
   const chip = (txt, bg, fg) => { const s = el("span",null,txt); s.style.cssText = `display:inline-block;min-width:22px;padding:1px 5px;border-radius:4px;font-size:11px;font-weight:700;text-align:center;background:${bg};color:${fg}`; return s; };
@@ -1448,30 +1450,12 @@ function tabTrabajador(box){
   { const s = el("span"); s.append(chip(" ", "var(--surface-2)", "var(--ink-3)"), " No laborable"); ley.append(s); const s2 = el("span"); s2.append(chip("Ab", "transparent", "var(--ink)"), " Puesto (abreviatura: pulsa para editarla)"); ley.append(s2);
     if (conH){ const s3 = el("span"); const hh = el("b",null,"/ 8"); hh.style.color = COL_H; s3.append(hh, " horas efectivas"); ley.append(s3); } }
   box.append(ley);
-  const tw = el("div","tblwrap"); const t = el("table","tbl fija"); t.style.fontSize = "11.5px"; t.style.width = "auto"; const hr = el("tr"); hr.append(el("th",null,`Trabajadores (${filas.length})`));
+  const tw = el("div","tblwrap"); const t = el("table","tbl fija"); t.style.fontSize = "11.5px"; t.style.width = "auto"; const hr = el("tr"); hr.append(el("th",null,`Trabajadores M.O.D (${filas.length})`));
   for (const x of P){ const th = el("th",null,x.lab); th.style.cssText = "text-align:center;white-space:nowrap;padding:4px 6px"; if (F.escala === "dia" && !D.K.laborable(x.ini, "planta")) th.style.color = "var(--ink-3)"; hr.append(th); }
   if (conH){ const th = el("th","n","Horas"); th.style.color = COL_H; hr.append(th); }
   t.append(el("thead")); t.tHead.append(hr); const tb = el("tbody");
   const abSpan = pk => { const s = el("span",null,pk.ab || "—"); if (pk.id && !(F.escala === "dia" && puede())){ s.style.cssText = "cursor:pointer;text-decoration:underline dotted"; s.title = `${pk.dep} › ${pk.pue}: pulsa para ver o cambiar la abreviatura`; s.addEventListener("click", e => { e.stopPropagation(); irPuesto(pk.id); }); } return s; };
-  // grupos sección › departamento: pulsa la cabecera para plegar o desplegar
-  if (!R.plegT) R.plegT = new Set();
-  const gDe = f => `${f.pk.clas || "Sin sección"} › ${f.pk.dep || "Sin departamento"}`, GR = new Map();
-  for (const f of filas){ const g = gDe(f); if (!GR.has(g)) GR.set(g, []); GR.get(g).push(f); }
-  { const c = el("div"); c.style.cssText = "display:flex;gap:8px;margin:0 0 8px";
-    const ab = el("button","btn small","Desplegar todo"); ab.addEventListener("click", () => { R.plegT.clear(); render(); });
-    const cb = el("button","btn small","Plegar todo"); cb.addEventListener("click", () => { for (const g of GR.keys()) R.plegT.add(g); render(); });
-    c.append(ab, cb); box.append(c); }
-  let grupo = null;
   for (const f of filas){
-    const g = gDe(f), cerrado = R.plegT.has(g);
-    if (g !== grupo){ grupo = g; const G = GR.get(g); const tr = el("tr","wk"); tr.style.cursor = "pointer"; tr.title = cerrado ? "Pulsa para desplegar" : "Pulsa para plegar";
-      tr.addEventListener("click", () => { cerrado ? R.plegT.delete(g) : R.plegT.add(g); render(); });
-      const td = el("td"); td.style.cssText = "font-weight:700;white-space:nowrap"; td.append(el("span","chev", cerrado ? "▸ " : "▾ "), g, el("small",null,` (${G.length})`)); tr.append(td);
-      if (cerrado){ P.forEach((x, i) => { const h = sum(G, f2 => f2.R2[i].reduce((t, r) => t + r.hEf, 0)); const c2 = el("td", null, h > 0.004 ? (F.escala === "dia" ? num1(h) : fmtH(h)) + " h" : ""); c2.style.cssText = `text-align:center;white-space:nowrap;padding:3px 5px;color:${COL_H};font-size:10.5px`; tr.append(c2); });
-        if (conH){ const c3 = el("td","n", fmtH(sum(G, f2 => f2.R2.reduce((t, dd) => t + dd.reduce((u, r) => u + r.hEf, 0), 0)))); c3.style.cssText = `color:${COL_H};font-weight:700`; tr.append(c3); } }
-      else { const td2 = el("td"); td2.colSpan = P.length + (conH ? 1 : 0); tr.append(td2); }
-      tb.append(tr); }
-    if (cerrado) continue;
     const tr = el("tr"); const tn = el("td",null,f.p.nombre + (f.p.tipo_vinculo === "ETT" ? " · ETT" : "")); tn.style.cssText = "white-space:nowrap;cursor:pointer"; tn.title = "Trabajar sobre este trabajador (Introducción de datos)";
     tn.addEventListener("click", () => { R.selP = f.p.id; R.tabD = "plantilla"; render(); }); tr.append(tn);
     let totH = 0;
