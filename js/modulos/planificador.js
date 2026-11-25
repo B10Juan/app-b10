@@ -189,16 +189,17 @@ function renderHome(app){
 const PARAMS=[["plazo","Pedido a puerto","sem"],["transito","Tránsito","sem"],["despacho","Despacho","sem"],["cobertura","Cobertura por pedido","sem"]];
 function renderSupHeader(app,r){
   const s=sup(r.sid), c=cfg(r.sid); document.title=`${s.name}: planificador de compras`;
-  const h=el("header","top pad"); const b=el("div","brand");
-  const back=el("a","back","‹ Proveedores"); back.href="#proveedores"; b.append(back, el("h1",null,s.name), el("p",null,[s.razon&&s.razon!==s.name?s.razon+(s.codigo_ax?` (${s.codigo_ax})`:""):"",s.contacto?"Contacto: "+s.contacto:"",s.email||""].filter(Boolean).join("   ")||"Sin datos de contacto"));
-  h.append(b);
+  const h=el("header","top pad suphead"); const b=el("div","brand suptit");
+  b.append(el("h1",null,s.name), el("span","supinfo",[s.razon&&s.razon!==s.name?s.razon+(s.codigo_ax?` (${s.codigo_ax})`:""):"",s.contacto?"Contacto: "+s.contacto:"",s.email||""].filter(Boolean).join(" · ")||"Sin datos de contacto"));
+  const back=el("a","btn small supback","‹ Proveedores"); back.href="#proveedores"; back.title="Volver a la lista de proveedores";
+  h.append(b, back);
   const pr=el("div","params");
   for(const [k,l,u] of PARAMS){const w=el("label","param"); w.append(l+" "); const i=el("input"); i.value=c[k]; i.inputMode="numeric"; i.disabled=!state.canWrite; i.setAttribute("aria-label",l); i.dataset.k="param-"+k;
     i.addEventListener("change",()=>{const v=num(i.value); if(!(v>=0)){i.value=c[k]; toast("Introduce un número válido"); return;} saveSup(r.sid,{[k]:v});}); w.append(i,el("span","u",u)); pr.append(w);}
   const fw=el("label","param fpar"); fw.append("Forma de pago "); const fs=selForma((sup(r.sid)||{}).fpId, v=>saveSup(r.sid,{fpId:v}), false); fs.disabled=!state.canWrite; fs.setAttribute("aria-label","Forma de pago del proveedor"); fw.append(fs); pr.append(fw);
   h.append(pr); app.append(h);
-  const fl=el("section","flow"); fl.setAttribute("aria-label","Plazos de un pedido");
-  const step=(t,sm,k)=>{const d=el("div"); d.append(el("b",null,t),el("small",null,sm),el("span","k",k)); return d;};
+  const fl=el("section","flow flow1"); fl.setAttribute("aria-label","Plazos de un pedido");
+  const step=(t,sm,k)=>{const d=el("div"); d.title=`${t}: ${sm} (${k})`; d.append(el("b",null,t),el("small",null,sm),el("span","k",k)); return d;};
   fl.append(step("Pedido","Se lanza al proveedor",`ETA − ${c.plazo} sem`), step("Pago",formaSup(r.sid).tramos.length>1?"En varios tramos":"Previsión",formaCorta(formaSup(r.sid))), step("Carga en China","ETD, embarque",`ETA − ${c.transito} sem`), step("Llegada a puerto","ETA Valencia","ETA"), step("Entrada en almacén","Tras despacho",`ETA + ${c.despacho} sem`));
   app.append(fl);
   const nav=el("nav","tabs pad");
@@ -224,8 +225,10 @@ function renderArticles(app,sid){
   const nb=el("button","btn primary","Nuevo artículo"); nb.disabled=!state.canWrite; nb.addEventListener("click",()=>openProd(null,sid));
   const st=supStats(sid); const sm=el("div","summary");
   const mk=(cl,n,l)=>{const x=el("span",cl); x.append(el("b",null,String(n))," "+l); return x;};
-  sm.append(mk("r",st.brk,"con rotura"),mk("a",st.und,"bajo seguridad"),mk("p",st.pend,"entradas sin pedido"),mk("m",st.mods,"modificaciones por validar"),mk("",st.launch,"pedidos a lanzar en 4 semanas"));
-  tb.append(q,l1,l2,nb,exportBtn(()=>exportArticles(sid)),sm); app.append(tb);
+  const mk2=(cl,n,l,t)=>{const x=mk(cl,n,l); x.title=t; return x;};
+  sm.append(mk2("r",st.brk,"rotura","Artículos con rotura"),mk2("a",st.und,"bajo seguridad","Artículos bajo stock de seguridad"),mk2("p",st.pend,"sin pedido","Entradas sin pedido"),mk2("m",st.mods,"por validar","Modificaciones pendientes de validar por el proveedor"),mk2("",st.launch,"a lanzar (4 sem)","Pedidos a lanzar en las próximas 4 semanas"));
+  sm.classList.add("sum1");
+  tb.classList.add("tb1"); tb.append(q,l1,l2,nb,exportBtn(()=>exportArticles(sid)),sm); app.append(tb);
   const lg=el("div","legend pad");
   for(const [v,t] of [["--arrive-soft","Entrada con pedido confirmado"],["--steel-soft","Otra entrada (devolución, otro proveedor…)"],["--pend-soft","Entrada pendiente de confirmar pedido"],["--mod-soft","Modificación pendiente de validar por el proveedor"],["--promo-soft","Venta modificada a mano"],["--amber-soft","Bajo stock de seguridad"],["--red-soft","Rotura"]]){const s=el("span"); const i=el("i"); i.style.background=`var(${v})`; s.append(i,t); lg.append(s);}
   app.append(lg);

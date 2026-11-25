@@ -896,3 +896,22 @@ dialog#dlgNav{max-width:min(900px,96vw);width:900px}
 .ph .tag.shared{background:var(--steel-soft);color:var(--steel);border:1px dashed var(--steel)}
 .grid button.mcell.lnk{background:color-mix(in srgb,var(--arrive-soft) 70%,transparent);color:var(--arrive);font-weight:600;box-shadow:inset 0 -2px 0 var(--arrive)}
 .grid button.mcell.lnk.has{box-shadow:inset 0 -2px 0 var(--steel)}
+
+/* ---- Planificador: cabecera del proveedor más baja ---- */
+header.suphead{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;padding-top:14px;padding-bottom:6px}
+header.suphead .suptit{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;min-width:0;flex:1 1 auto}
+header.suphead .suptit h1{margin:0}
+header.suphead .supinfo{font-size:13.5px;color:var(--ink-2)}
+header.suphead .supback{order:2;margin-left:auto;align-self:center}
+header.suphead .params{order:3;flex-basis:100%;margin-top:4px}
+.flow.flow1{margin-bottom:10px}
+.flow.flow1 div{display:flex;align-items:baseline;gap:8px;padding:6px 12px;white-space:nowrap;min-width:0}
+.flow.flow1 b{display:inline;font-size:13.5px}
+.flow.flow1 small{overflow:hidden;text-overflow:ellipsis;min-width:0;font-size:12px}
+.flow.flow1 .k{position:static;margin-left:auto;flex:none}
+.toolbar.tb1{flex-wrap:nowrap;align-items:center}
+.toolbar.tb1 > input[type=search]{min-width:150px;flex:0 1 220px}
+.toolbar.tb1 > label{white-space:nowrap}
+.summary.sum1{flex:1 1 auto;min-width:0;justify-content:flex-end;gap:4px 12px;font-size:13px}
+.summary.sum1 span{white-space:nowrap}
+@media (max-width:1100px){.toolbar.tb1{flex-wrap:wrap}}
