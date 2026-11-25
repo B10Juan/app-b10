@@ -97,6 +97,13 @@ function orderState(o,sid){
   if(d.crd&&utcToday>=d.crd) return ["Pendiente de embarque","warn"];
   return ["En producción","ok"];
 }
+/* ===== Referencias compartidas entre proveedores =====
+   Una misma referencia (clave de stock) planificada en varios proveedores comparte venta prevista y stock de seguridad,
+   y cada proveedor ve en «Otras entradas» las entradas de los pedidos de los demás. Prioridad de datos: Sico, después Waltmal. */
+const PRIO_PROV=["Cankis Sico","Cankis Waltmal"];
+const claveRef=p=>(p.clave||p.codigo_ax||"").toUpperCase();
+function hermanos(p){ const k=claveRef(p); if(!k) return []; return state.products.filter(x=>x!==p&&x._id!==p._id&&x.supplier!==p.supplier&&claveRef(x)===k); }
+function principalDe(p){ const g=[p,...hermanos(p)]; const pr=x=>{const n=(sup(x.supplier)||{}).name||""; const i=PRIO_PROV.indexOf(n); return i<0?99:i;}; return g.sort((a,b)=>pr(a)-pr(b)||((sup(a.supplier)||{}).name||"").localeCompare((sup(b.supplier)||{}).name||""))[0]; }
 function calc(p,sid){
   const c=cfg(sid), W=weeks(sid), n=W.length, idx=new Map(W.map((d,i)=>[key(d),i]));
   const dem=new Array(n), entry=new Array(n).fill(0), tone=new Array(n).fill(""), tips=Array.from({length:n},()=>[]), ped=new Array(n).fill(0), carga=new Array(n).fill(0);
@@ -104,6 +111,11 @@ function calc(p,sid){
   for(let i=0;i<n;i++){const k=key(W[i]); dem[i]=(k in ov)?ov[k]:avg;}
   const man=new Array(n).fill(0), manInfo=new Array(n).fill(null); for(const [k,e] of Object.entries(p.manual||{})){const i=idx.get(k); if(i!=null){man[i]+=e.cantidad; manInfo[i]=e;}}
   const warnings=[], rank={"":0,conf:1,pnd:2,mod:3}, conf=new Array(n).fill(0);
+  // entradas de los pedidos de otros proveedores de la misma referencia
+  const lnk=new Array(n).fill(0), lnkInfo=Array.from({length:n},()=>[]);
+  for(const hp of hermanos(p)){ const hs=hp.supplier, hn=(sup(hs)||{}).name||"";
+    for(const o of ordersOf(hs)){ const q=effLines(o)[hp.code]||0; if(!q) continue; const d=od(o,hs), i=idx.get(key(d.entryW)); if(i==null) continue;
+      lnk[i]+=q; if(!isPend(o)) conf[i]+=q; lnkInfo[i].push({prov:hn, ref:isPend(o)?`entrada ${wLabel(d.entryW)} aún sin pedido`:o.ref, q}); } }
   for(const o of ordersOf(sid)){
     const q=effLines(o)[p.code]||0, base=(o.lines||{})[p.code]||0, changed=!isPend(o)&&o.mod&&q!==base;
     if(!q&&!changed) continue;
@@ -116,11 +128,11 @@ function calc(p,sid){
     if(pal>1&&q%pal!==0) warnings.push(`${q} uds en ${isPend(o)?"entrada "+wLabel(d.entryW):o.ref} no es múltiplo de ${pal}`);
   }
   const net=new Array(n); let prev=p.stock||0;
-  for(let i=0;i<n;i++){prev=prev-dem[i]+entry[i]+man[i]; net[i]=prev;}
+  for(let i=0;i<n;i++){prev=prev-dem[i]+entry[i]+man[i]+lnk[i]; net[i]=prev;}
   const real=net.map(v=>Math.max(0,v)), res=net.map(v=>Math.max(0,-v)), over=net.map(v=>v-(p.ss||0));
   const fi=p.extinguir?-1:over.findIndex(v=>v<-1e-9); let sug=null;
   if(fi>=0){const launch=addW(W[fi],-(c.despacho+c.plazo)); const short=-over[fi]+avg*c.cobertura; sug={week:W[fi],launch,qty:Math.max(pal,Math.ceil(short/pal-1e-9)*pal),late:launch<today,rotura:net.some(v=>v<-1e-9)};}
-  return {conf,W,dem,entry,man,manInfo,tone,tips,ped,carga,net,real,res,over,sug,warnings,miss:missing(p)};
+  return {lnk,lnkInfo,conf,W,dem,entry,man,manInfo,tone,tips,ped,carga,net,real,res,over,sug,warnings,miss:missing(p)};
 }
 function supStats(sid){
   let brk=0,und=0,launch=0,inc=0;
@@ -250,6 +262,7 @@ function productBody(p,r,W,sid,c){
   stk.title=p.stockAX?`Stock disponible de AX («Disponible real», clave ${p.clave}): ${fmt(p.stock)||0} uds. Stock real («Disponible»): ${fmt(p.stockReal)||0} uds. Fichero «${p.stockFichero||""}» del ${fechaLarga(p.stockFecha)}`:(p.clave?`No hay stock de AX para la clave ${p.clave}: se usa el stock manual`:"Sin clave de stock: se usa el stock manual");
   inn.append(nb, el("span","code",dispCode(p)+(p.clave&&p.codigo_ax&&p.clave!==p.codigo_ax?` · ${p.clave.slice(p.codigo_ax.length)}`:"")), stk, el("span","meta",`Venta ${mv(p.avg)}/sem  |  Seguridad ${mv(p.ss)}  |  Pallet ${mv(p.pallet)}  |  Precio ${p.price==null||p.price===""?"falta":fmtE2(p.price)}`));
   if(p.extinguir) inn.append(el("span","tag ext","A extinguir: no pedir"));
+  { const hs=hermanos(p); if(hs.length){ const t=el("span","tag shared",`También en ${hs.map(h=>(sup(h.supplier)||{}).name).join(", ")}`); t.title="Referencia compartida: la venta prevista y el stock de seguridad son comunes, y las entradas de los pedidos de los otros proveedores aparecen en «Otras entradas»."; inn.append(t); } }
   if(r.miss.length&&!p.extinguir){const mb=el("button","tag bad",`Faltan datos: ${r.miss.join(", ")}. Completar`); mb.addEventListener("click",()=>openProd(p,sid)); inn.append(mb);}
   if(r.sug){const s=r.sug; inn.append(el("span","tag "+(s.late||s.rotura?"bad":"warn"), s.late?`Vas tarde: bajo seguridad en ${wLabel(s.week)}. Pide ya ${s.qty} uds`:`Lanzar pedido en ${wLabel(s.launch)}: ${s.qty} uds (bajo seguridad en ${wLabel(s.week)})`));}
   else if(!r.miss.length&&!p.extinguir) inn.append(el("span","tag ok","Cubierto todo el horizonte"));
@@ -280,8 +293,11 @@ function productBody(p,r,W,sid,c){
         }
         td.append(inp);
       }
-      else if(k==="man"){td.classList.remove("v"); const e=r.manInfo[i]; const b=el("button","mcell"+(e?" has":""),e?fmt(e.cantidad)||String(e.cantidad):"");
-        b.disabled=!state.canWrite&&!e; b.dataset.k=`man|${p.code}|${ks}`; b.title=e?`${MOTIVOS[e.motivo]||"Entrada"}: ${e.cantidad} uds${e.comentario?"\n"+e.comentario:""}`:"Añadir una entrada (devolución, compra a otro proveedor…)";
+      else if(k==="man"){td.classList.remove("v"); const e=r.manInfo[i], li=r.lnkInfo[i], tot=(e?+e.cantidad:0)+(r.lnk[i]||0);
+        const b=el("button","mcell"+(e?" has":"")+(li.length?" lnk":""),tot?fmt(tot)||String(tot):"");
+        b.disabled=!state.canWrite&&!e; b.dataset.k=`man|${p.code}|${ks}`;
+        const tl=[]; for(const x of li) tl.push(`${x.prov} · ${x.ref}: ${x.q} uds (pedido de otro proveedor, se mueve con él)`); if(e) tl.push(`${MOTIVOS[e.motivo]||"Entrada"}: ${e.cantidad} uds${e.comentario?" · "+e.comentario:""}`);
+        b.title=tl.length?tl.join("\n")+(state.canWrite?"\nPulsa para añadir o cambiar una entrada manual":""):"Añadir una entrada (devolución, compra a otro proveedor…)";
         b.setAttribute("aria-label",`Otras entradas ${p.name} ${wLabel(W[i])}`); b.addEventListener("click",()=>openMan(p,W[i],e,sid)); td.append(b);}
       else if(k==="ped"){td.textContent=fmt(r.ped[i]); if(r.ped[i]) td.classList.add("ord");}
       else if(k==="carga"){td.textContent=fmt(r.carga[i]); td.classList.add("carga");}
@@ -763,8 +779,11 @@ function saveSup(sid, patch){
   const row = {}; for (const k of Object.keys(patch)) if (M[k]) row[M[k]] = patch[k];
   return enqueue(sid, async () => chk(await sb.schema("maestros").from("proveedores").update(row).eq("id", s.dbId)));
 }
-function saveProduct(p){
+function saveProduct(p, sinPropagar){
   const old = state.products.find(x => x._id === p._id) || {}; const i = state.products.findIndex(x => x._id === p._id);
+  if (!sinPropagar && (old.avg !== p.avg || old.ss !== p.ss || JSON.stringify(old.overrides || {}) !== JSON.stringify(p.overrides || {}))){
+    for (const h of hermanos(old._id ? old : p)) saveProduct(Object.assign(clone(h), { avg:p.avg, ss:p.ss, overrides:clone(p.overrides || {}) }), true);
+  }
   if (i >= 0) state.products[i] = p; render();
   return enqueue(p._id, async () => {
     const a = {}; if (old.codigo_ax !== p.codigo_ax) a.codigo_ax = p.codigo_ax || null; if (old.estado !== p.estado) a.estado = p.estado;
@@ -1034,7 +1053,11 @@ function resumenProveedores(app){
     const stU = ps.reduce((a,p) => a + Math.max(0, stHoy(p)), 0), stC = ps.reduce((a,p) => a + Math.max(0, stHoy(p)) * (p.price || 0), 0);
     const wk = W.map((_,i) => rows.reduce((a,x) => a + (RS.medida === "coste" ? (x.prev[i] || 0) * (x.p.price || 0) : (x.prev[i] || 0)), 0));
     const rot = W.map((_,i) => rows.some(x => !x.p.extinguir && x.raw[i] != null && x.raw[i] < -1e-9));
-    add(mon,"ss",ssU); add(mon,"ssc",ssC); add(mon,"st",stU); add(mon,"stc",stC); add(mon,"w",wk);
+    // en los totales generales, cada referencia compartida cuenta una sola vez (en su proveedor principal)
+    const un = rows.filter(x => principalDe(x.p)._id === x.p._id), upr = un.map(x => x.p);
+    add(mon,"ss",upr.reduce((a,p) => a + (p.ss || 0), 0)); add(mon,"ssc",upr.reduce((a,p) => a + (p.ss || 0) * (p.price || 0), 0));
+    add(mon,"st",upr.reduce((a,p) => a + Math.max(0, stHoy(p)), 0)); add(mon,"stc",upr.reduce((a,p) => a + Math.max(0, stHoy(p)) * (p.price || 0), 0));
+    add(mon,"w",W.map((_,i) => un.reduce((a,x) => a + (RS.medida === "coste" ? (x.prev[i] || 0) * (x.p.price || 0) : (x.prev[i] || 0)), 0)));
     const open = RS.abiertos.has(s._id) || words.length > 0;   // con búsqueda se ven los artículos directamente
     const tr = el("tr","rsup"+(open?" open":"")); tr.title = open ? "Plegar" : "Ver los artículos"; tr.addEventListener("click", () => { open ? RS.abiertos.delete(s._id) : RS.abiertos.add(s._id); render(); });
     const c0 = el("td","l fix f1 sup"); c0.colSpan = 2; c0.append(el("span","chev", open ? "▾" : "▸"), el("b",null,s.name), el("small",null,` ${ps.length} art. · ${mon}`));

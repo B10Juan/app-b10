@@ -892,3 +892,7 @@ dialog#dlgNav{max-width:min(900px,96vw);width:900px}
 .vac-d.vac.emp{background:#D98C2E;color:#fff}
 .vac-ley{flex-wrap:wrap}
 .ctrl select.activo{border-color:var(--ink);box-shadow:0 0 0 1px var(--ink)}
+/* Referencias compartidas entre proveedores */
+.ph .tag.shared{background:var(--steel-soft);color:var(--steel);border:1px dashed var(--steel)}
+.grid button.mcell.lnk{background:color-mix(in srgb,var(--arrive-soft) 70%,transparent);color:var(--arrive);font-weight:600;box-shadow:inset 0 -2px 0 var(--arrive)}
+.grid button.mcell.lnk.has{box-shadow:inset 0 -2px 0 var(--steel)}
